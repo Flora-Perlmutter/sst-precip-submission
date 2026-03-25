@@ -1,0 +1,533 @@
+#!/usr/bin/env python
+# coding: utf-8
+"""
+Bootstrap standard error estimation for observational linear regression.
+
+Author: Flora Perlmutter
+
+Description
+-----------
+For each precipitation-SST pair, fits P ~ β*SST using basin-scale data,
+applies FDR correction, computes SST reconstructions, and estimates
+uncertainty via a memory-efficient block bootstrap with Welford's
+incremental variance algorithm.
+
+Configuration
+-------------
+ALPHA       : FDR significance threshold (default 0.05)
+N_BOOTSTRAP : Number of bootstrap iterations (default 100)
+BLOCK_SIZE  : Default block size in months for temporal resampling (default 11)
+RANDOM_SEED : Random seed for reproducibility (default 42)
+
+Block size is automatically overridden per SST dataset:
+  ERSSTv6   → 11 months
+  COBE-SST3 → 9 months
+
+"""
+
+import argparse
+import gc
+import os
+import sys
+import warnings
+from pathlib import Path
+
+import numpy as np
+import psutil
+import xarray as xr
+from joblib import Parallel, delayed
+from tqdm import tqdm
+
+# --- project paths ---
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # project root
+from paths import CMIG_DATA, DATA_DIR
+from regression_functions import waterbasin, detrend_dim, grid_area, fdr_correction, regression_slope_se
+
+warnings.filterwarnings("ignore")
+
+
+# ---------------------------------------------------------------------------
+# HPC paths
+# ---------------------------------------------------------------------------
+INPUTS_DIR = CMIG_DATA / "fperlmutter/Observational_Regressions_Project/Data/Processed"
+OUTPUTS_DIR = DATA_DIR
+
+
+# Define precipitation datasets (must match what was saved)
+PRECIP_DATASETS = {
+    'GPCP': None,
+    'CRU': None,
+    'GPCC': None,
+    'CPC': None,
+    'UDel': None,
+    'PREC': None,
+    'TerraClimate': None,
+    'REGEN': None,
+}
+
+# Configuration
+ALPHA = 0.05
+N_BOOTSTRAP = 100
+BLOCK_SIZE = 11
+RANDOM_SEED = 42
+
+# ============================================================================
+# MEMORY MONITORING
+# ============================================================================
+
+def get_memory_usage():
+    """Get current memory usage in GB."""
+    process = psutil.Process()
+    return process.memory_info().rss / (1024 ** 3)
+
+def get_available_memory():
+    """Get available system memory in GB."""
+    return psutil.virtual_memory().available / (1024 ** 3)
+
+def print_memory_status(step_name):
+    """Print current memory status."""
+    used = get_memory_usage()
+    available = get_available_memory()
+    total = psutil.virtual_memory().total / (1024 ** 3)
+    percent = psutil.virtual_memory().percent
+    
+    print(f"  [MEMORY] {step_name}:")
+    print(f"    Process: {used:.2f} GB | Available: {available:.2f} GB | "
+          f"Total: {total:.2f} GB | Used: {percent:.1f}%")
+    
+    if percent > 80:
+        print(f"WARNING: System memory usage above 80%!")
+    
+    return used, available
+
+# ============================================================================
+# WELFORD'S INCREMENTAL VARIANCE ALGORITHM
+# ============================================================================
+
+class IncrementalStats:
+    """
+    Compute mean and variance incrementally using Welford's online algorithm.
+    Avoids storing all bootstrap samples in memory.
+    """
+    
+    def __init__(self, shape, dtype=np.float32):
+        self.n = 0
+        self.mean = np.zeros(shape, dtype=dtype)
+        self.m2 = np.zeros(shape, dtype=dtype)  # Sum of squared deviations
+    
+    def update(self, x):
+        """Add a new sample."""
+        self.n += 1
+        delta = x - self.mean
+        self.mean += delta / self.n
+        delta2 = x - self.mean
+        self.m2 += delta * delta2
+    
+    def get_mean(self):
+        """Return current mean."""
+        return self.mean
+    
+    def get_variance(self):
+        """Return current variance."""
+        if self.n < 2:
+            return np.zeros_like(self.mean)
+        return self.m2 / (self.n - 1)
+    
+    def get_std(self):
+        """Return current standard deviation."""
+        return np.sqrt(self.get_variance())
+
+
+
+# ============================================================
+# Parallelized Bootstrap Loop using joblib
+# ============================================================
+
+def run_single_bootstrap(seed, n_time, sst_detrended, p_detrended, sst_anom,
+                         area_precomputed, alpha, n_blocks, block_size):
+    np.random.seed(seed)
+    # Block bootstrap resampling
+    block_indices = np.random.choice(n_blocks, size=n_blocks, replace=True)
+    resampled_indices = []
+    for block_idx in block_indices:
+        start = block_idx * block_size
+        end = min(start + block_size, n_time)
+        resampled_indices.extend(range(start, end))
+    resampled_indices = resampled_indices[:n_time]
+
+    # Resample data
+    sst_boot = sst_detrended.isel(time=resampled_indices)
+    p_boot = p_detrended.isel(time=resampled_indices)
+
+    # Run regressions
+    slope_boot, _, pval_boot = xr.apply_ufunc(
+        regression_slope_se,
+        sst_boot,
+        p_boot,
+        input_core_dims=[['time'], ['time']],
+        vectorize=True,
+        output_core_dims=[[], [], []],
+        output_dtypes=[np.float32, np.float32, np.float32]
+    )
+
+    # Apply area weighting (precomputed)
+    slope_area_boot = area_precomputed * slope_boot
+
+    # FDR correction
+    fdr_mask_boot = fdr_correction(pval_boot, alpha_FDR=alpha)
+    slope_sig_boot = slope_area_boot.where(fdr_mask_boot, 0.0)
+
+    # Reconstruction
+    reconstruction_boot = (sst_anom * slope_sig_boot).sum(('lat', 'lon'))
+    
+    result = (
+        reconstruction_boot.values.astype(np.float32),
+        slope_sig_boot.values.astype(np.float32)
+    )
+
+    return (result)
+
+# ============================================================================
+# OPTIMIZED BOOTSTRAP FUNCTIONS - SEQUENTIAL
+# ============================================================================
+
+def bootstrap_se_incremental(sst_detrended, p_detrended, sst_anom, area_precomputed,
+                              alpha, n_bootstrap=200, block_size=11, random_seed=42):
+    """
+    Memory-efficient bootstrap using incremental variance calculation.
+    Processes bootstrap samples in batches to avoid memory buildup.
+    
+    Parameters
+    ----------
+    sst_detrended : xr.DataArray
+        SST detrended data (time, lat, lon) [float32]
+    p_detrended : xr.DataArray
+        Precipitation detrended data (time, basin) [float32]
+    sst_anom : xr.DataArray
+        SST anomalies for reconstruction [float32]
+    area_precomputed : xr.DataArray
+        Precomputed area weights (lat, lon, basin) [float32]
+    alpha : float
+        FDR alpha threshold
+    n_bootstrap : int
+        Number of bootstrap iterations
+    block_size : int
+        Block size for temporal correlation
+    random_seed : int
+        Random seed
+        
+    Returns
+    -------
+    reconstruction_se : xr.DataArray
+        Bootstrap SE for reconstruction (time, basin)
+    marginal_sensitivity_se : xr.DataArray
+        Bootstrap SE for marginal sensitivity (lat, lon, basin)
+    """
+    np.random.seed(random_seed)
+    
+    n_time = len(sst_detrended.time)
+    n_blocks = int(np.ceil(n_time / block_size))
+    n_basins = len(p_detrended.basin)
+    n_lat = len(sst_detrended.lat)
+    n_lon = len(sst_detrended.lon)
+    
+    print(f"\n{'='*60}")
+    print(f"BOOTSTRAP SE CALCULATION (Batched + Incremental)")
+    print(f"{'='*60}")
+    print(f"  Bootstrap iterations: {n_bootstrap}")
+    print(f"  Block size: {block_size} months")
+    print(f"  Using float32 precision")
+    print(f"  Grid: {n_lat} x {n_lon}")
+    print(f"  Basins: {n_basins}")
+    print(f"  Time points: {n_time}")
+    
+    # Initialize incremental statistics
+    recon_stats = IncrementalStats((n_time, n_basins), dtype=np.float32)
+    slope_stats = IncrementalStats((n_lat, n_lon, n_basins), dtype=np.float32)
+    
+    print_memory_status("After initializing incremental stats")
+    
+    # ========================================================================
+    # Process bootstrap in batches
+    # ========================================================================
+    from joblib import Parallel, delayed
+    
+    BATCH_SIZE = 4  # Process 4 bootstraps at a time
+    n_batches = int(np.ceil(n_bootstrap / BATCH_SIZE))
+    
+    print(f"  Processing in {n_batches} batches of {BATCH_SIZE}")
+    
+    for batch_idx in range(n_batches):
+        start_idx = batch_idx * BATCH_SIZE
+        end_idx = min((batch_idx + 1) * BATCH_SIZE, n_bootstrap)
+        batch_size = end_idx - start_idx
+        
+        print(f"\n  Batch {batch_idx + 1}/{n_batches}: iterations {start_idx}-{end_idx-1}")
+        
+        # Run parallel bootstrap for this batch
+        results = Parallel(n_jobs=4, backend='loky')(
+            delayed(run_single_bootstrap)(
+                seed, n_time, sst_detrended, p_detrended, sst_anom, area_precomputed,
+                alpha, n_blocks, block_size
+            )
+            for seed in tqdm(range(start_idx, end_idx), desc=f"Batch {batch_idx + 1}")
+        )
+        
+        print_memory_status(f"After batch {batch_idx + 1} computation")
+        
+        # Update incremental statistics with batch results
+        for recon_values, slope_values in results:
+            recon_stats.update(recon_values)
+            slope_stats.update(slope_values)
+        
+        # Aggressively clean up batch results
+        del results
+        gc.collect()
+        
+        print_memory_status(f"After batch {batch_idx + 1} cleanup")
+    
+    print_memory_status("After all batches complete")
+    
+    # Get final statistics
+    reconstruction_se_np = recon_stats.get_std()
+    marginal_sensitivity_se_np = slope_stats.get_std()
+    
+    # Convert to xarray
+        
+    reconstruction_se = xr.DataArray(
+        reconstruction_se_np,
+        dims=['time', 'basin'],
+        coords={'time': p_detrended.time, 'basin': p_detrended.basin}
+    )
+    
+    marginal_sensitivity_se = xr.DataArray(
+        marginal_sensitivity_se_np,
+        dims=['lat', 'lon', 'basin'],
+        coords={
+            'lat': sst_detrended.lat,
+            'lon': sst_detrended.lon,
+            'basin': p_detrended.basin
+        })
+    
+    print_memory_status("After converting to xarray")
+    
+    return (reconstruction_se, marginal_sensitivity_se)
+
+# ============================================================================
+# PROCESS SINGLE PAIR
+# ============================================================================
+
+def process_pair(p_name, p_anom, sst_name, sst_anom):
+    """
+    Process a single precipitation-SST pair with optimized bootstrap.
+    """
+    print(f"\n{'='*80}")
+    print(f"PROCESSING: {p_name} vs {sst_name}")
+    print(f"{'='*80}")
+    
+    p_anom = p_anom.load()
+    
+    common_time = np.intersect1d(p_anom['time'].values, sst_anom['time'].values)
+    p_anom = p_anom.sel(time=common_time)
+    sst_anom = sst_anom.sel(time=common_time)
+    
+    # Detrending
+    print("Detrending...")
+    p_detrended = detrend_dim(p_anom, 'time').astype(np.float32)
+    sst_detrended = detrend_dim(sst_anom, 'time').astype(np.float32)
+    
+    # ========================================================================
+    # Original regression
+    # ========================================================================
+    print("\nRunning original regressions...")
+    slope, slope_se, pval = xr.apply_ufunc(
+        regression_slope_se,
+        sst_detrended,
+        p_detrended,
+        input_core_dims=[['time'], ['time']],
+        vectorize=True,
+        output_core_dims=[[], [], []],
+        output_dtypes=[np.float32, np.float32, np.float32]
+    )
+    
+    print(f"  Valid slopes: {(~np.isnan(slope)).sum().values}")
+    
+    print_memory_status("After regression")
+    
+    # ========================================================================
+    # Precompute area weights
+    # ========================================================================
+    print("\nPrecomputing area weights...")
+    area = grid_area(slope).astype(np.float32)
+    
+    # Broadcast area to all basins
+    area_precomputed = area * xr.ones_like(slope)
+    
+    print_memory_status("After area computation")
+    
+    # ========================================================================
+    # FDR correction on original
+    # ========================================================================
+    print("Applying FDR correction...")
+    slope_area = area_precomputed * slope
+    
+    fdr_mask = fdr_correction(pval, alpha_FDR=ALPHA)
+    n_sig_total = int(fdr_mask.sum().values)
+    print(f"  Significant cells: {n_sig_total}")
+    
+    slope_sig = slope_area.where(fdr_mask)
+    
+    # ========================================================================
+    # Original reconstruction
+    # ========================================================================
+    print("Computing original reconstruction...")
+    reconstruction = (sst_anom * slope_sig).sum(('lat', 'lon'))
+    
+    print_memory_status("After original reconstruction")
+    
+    # ========================================================================
+    # Bootstrap SE (incremental, memory-efficient, sequential)
+    # ========================================================================
+    print("\nRunning bootstrap SE calculation...")
+
+    # Automatically set block size based on SST dataset name
+    if "ERSSTv6" in sst_name:
+        block_size = 11
+    elif "COBE-SST3" in sst_name:
+        block_size = 9
+    else:
+        block_size = BLOCK_SIZE  # default fallback
+    
+    print(f"  Selected block size: {block_size} months based on SST dataset name: {sst_name}")
+    
+    reconstruction_se, marginal_sensitivity_se = bootstrap_se_incremental(
+        sst_detrended, p_detrended, sst_anom, area_precomputed,
+        ALPHA, N_BOOTSTRAP, block_size, RANDOM_SEED
+    )
+    
+    print_memory_status("After bootstrap")
+
+    
+    # ========================================================================
+    # Compute metrics per basin
+    # ========================================================================    
+    print("  Computing metrics...")
+    
+    corr = xr.corr(reconstruction, p_anom, 'time')
+    
+    # ========================================================================
+    # Clean up before returning
+    # ========================================================================
+    del p_detrended, sst_detrended, sst_anom, slope, slope_se, pval
+    del area, area_precomputed, slope_area, fdr_mask
+    gc.collect()
+    
+    print_memory_status("Before return")
+    
+    result = {
+        'model_id': 'P ~ β*SST',
+        'description': 'Linear regression with bootstrap SE (optimized)',
+        'variable': 'precip',
+        'alpha': ALPHA,
+        'n_bootstrap': N_BOOTSTRAP,
+        'reconstruction': reconstruction,
+        'reconstruction_se': reconstruction_se,
+        'observed_precip': p_anom,
+        'correlation': corr,
+        'marginal_sensitivity_se': marginal_sensitivity_se,
+        'marginal_sensitivity': slope_sig,
+    }
+    
+    print(f"\n SUCCESS: {p_name} vs {sst_name}")
+    
+    return ((p_name, sst_name), result)
+
+# ============================================================================
+# MAIN EXECUTION
+# ============================================================================
+
+def main():
+    parser = argparse.ArgumentParser(description='Bootstrap SE for one pair')
+    parser.add_argument('--pair-index', type=int, required=True,
+                        help='Index of precipitation-SST pair to process (0-based)')
+    args = parser.parse_args()
+    
+    print("\n" + "="*80)
+    print("OPTIMIZED BOOTSTRAP SE ANALYSIS")
+    print("="*80)
+    print(f"Pair index: {args.pair_index}")
+    print(f"Bootstrap iterations: {N_BOOTSTRAP}")
+    print(f"Block size: {BLOCK_SIZE}")
+    print(f"Alpha: {ALPHA}")
+        
+    # Load precipitation anomalies
+    precip_dict = {}
+    for p_name in PRECIP_DATASETS.keys():
+        nc_path = INPUTS_DIR / f"precip_anom_{p_name}.nc"
+        if os.path.exists(nc_path):
+            precip_dict[p_name] = xr.open_dataarray(nc_path)
+    
+    # Load SST anomalies
+    sst_dict = {}
+    for sst_name in ["ERSSTv6", "COBE-SST3"]:
+        nc_path = INPUTS_DIR / f"sst_anom_{sst_name}.nc"
+        if os.path.exists(nc_path):
+            sst_dict[sst_name] = xr.open_dataarray(nc_path).squeeze()
+    
+    print(f"  Precipitation datasets: {list(precip_dict.keys())}")
+    print(f"  SST datasets: {list(sst_dict.keys())}")
+    
+    # Create all pairs
+    pairs = [(p_name, p_anom, sst_name, sst_anom)
+             for p_name, p_anom in precip_dict.items()
+             for sst_name, sst_anom in sst_dict.items()]
+    
+    total_pairs = len(pairs)
+    print(f"  Total pairs: {total_pairs}")
+    
+    if args.pair_index >= total_pairs:
+        print(f"ERROR: pair-index {args.pair_index} >= total pairs {total_pairs}")
+        sys.exit(1)
+    
+    # Process the specified pair
+    p_name, p_da, sst_name, sst_da = pairs[args.pair_index]
+    
+    print(f"\nProcessing pair {args.pair_index}/{total_pairs-1}: {p_name} vs {sst_name}")
+    
+    key, result = process_pair(p_name, p_da, sst_name, sst_da)
+    
+    # Save result as NetCDF instead of pickle
+    output_file = OUTPUTS_DIR /       f'global_linear_regression_bootstrap_{p_name}_{sst_name}.nc'
+    
+    
+    # Convert result dict to xarray Dataset for saving
+    result_ds = xr.Dataset({
+        'reconstruction': result['reconstruction'],
+        'reconstruction_se': result['reconstruction_se'],
+        'observed_precip': result['observed_precip'],
+        'correlation': result['correlation'],
+        'marginal_sensitivity_se': result['marginal_sensitivity_se'],
+        'marginal_sensitivity': result['marginal_sensitivity'],
+    })
+    
+    # Add metadata as attributes
+    result_ds.attrs.update({
+        'model_id': result['model_id'],
+        'description': result['description'],
+        'variable': result['variable'],
+        'alpha': result['alpha'],
+        'n_bootstrap': result['n_bootstrap'],
+        'precip_dataset': p_name,
+        'sst_dataset': sst_name,
+    })
+    
+    result_ds.to_netcdf(output_file)
+    
+    print(f"\n  Saved: {output_file}")
+    
+    print("\n" + "="*80)
+    print("ANALYSIS COMPLETE")
+    print("="*80)
+
+if __name__ == "__main__":
+    main()

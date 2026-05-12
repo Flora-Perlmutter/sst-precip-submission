@@ -145,7 +145,7 @@ ms = ensemble_obs['marginal_sensitivity_sst'].reindex(basin=basin_ids)
 convolved = abs(ms) * sst_variability
 convolved_basin_mean = convolved.mean(dim='basin', skipna=True)
 
-# Min–max normalization → [0, 1]
+# --- Min–max normalization → [0, 1] --- 
 convolved_norm = minmax_norm(convolved_basin_mean)
 
 # --- Importance count (unchanged, looks good) ---
@@ -161,7 +161,7 @@ ocean_importance_count = ocean_importance_count.where(~all_nan_mask)
 ms_abs = abs(ms)
 ms_basinmean = ms_abs.mean(dim='basin', skipna=True)
 
-# Min–max normalization → [0, 1]
+# --- Min–max normalization → [0, 1] --- 
 ms_norm = minmax_norm(ms_basinmean)
 
 lats = ms.lat.values
@@ -271,7 +271,6 @@ cbar3 = fig.colorbar(
 )
 ax3.set_title("Total Sensitivity")
 cbar3.ax.minorticks_off()
-
 
 
 # -------------------------------

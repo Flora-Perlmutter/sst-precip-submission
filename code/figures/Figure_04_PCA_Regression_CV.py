@@ -113,7 +113,7 @@ def plot_scatter_panel(ax, basin_df, metric, metric_label, panel_label,
     # Each row already has regression and pca columns (ensemble-mean per basin).
     # To plot individual pairs we need the raw pair-level data, which is stored
     # in the wide per_basin CSV produced by build_per_basin_table.
-    # If you later save pair-level data, swap `sub` for that DataFrame here.
+
     r = sub["regression"].values
     p = sub["pca"].values
 
@@ -246,9 +246,6 @@ def make_figure():
     comparison_df = pd.read_csv(PROCESSED_DIR / "cv_reconstruction_method_comparison.csv")
 
     # --- Load raw pair-level data for individual points ---
-
-
-
     ds_raw = load_cv_results(verbose=False)
     pair_df = load_pair_level_data(ds_raw)
 

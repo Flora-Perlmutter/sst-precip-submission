@@ -3,9 +3,9 @@
 """
 Prepare CPC precipitation data for analysis.
 
-Updated: Flora Perlmutter, 3/7/2026
-Original: Noel Siegert, 3/21/2023
-Revised:  Leah Brown, 07/09/2025
+Updated: Flora Perlmutter
+Original: Noel Siegert
+Revised:  Leah Brown
 
 Description
 -----------
@@ -50,13 +50,13 @@ def process_one_file(f: str) -> None:
 
     ds = xr.open_dataset(f)
 
-    # 2. Resample to monthly sums
+    # Resample to monthly sums
     st_dt = ds.time.values[0]
     precip_monthly = ds.groupby("time.month").sum(dim="time")
     ds_mo = precip_monthly.rename_vars({"precip": "P"}).rename({"month": "time"})
     ds_mo["time"] = pd.date_range(start=st_dt, periods=12, freq="MS")
 
-    # 3. Attributes
+    # Attributes
     ds_mo.P.attrs["units"] = "mm/month"
     ds_mo.attrs.update(
         {
@@ -68,7 +68,7 @@ def process_one_file(f: str) -> None:
         }
     )
 
-    # 6. Save  ->  P.CPC.<year>.nc
+    # Save  ->  P.CPC.<year>.nc
     out_path = OUTPUT_DIR / "P.CPC.{}".format(Path(f).name[-7:])
     ds_mo.to_netcdf(out_path)
     print(f"Saved {out_path}")

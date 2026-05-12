@@ -59,8 +59,6 @@ OUTPUTS_DIR = DATA_DIR
 FIGURES_DIR = PAPER_FIGURE_DIR
 BASINS_DIR  = DATA_DIR / "grdc_basins"
 
-#Import and process Data
-
 # Load basin boundaries
 grdc_basins = gpd.read_file(BASINS_DIR)
 
@@ -326,7 +324,6 @@ cb1.ax.minorticks_off()
 
 # Add panel label
 ax1.text(-0.15, 1.17, 'a', transform=ax1.transAxes, fontsize=10, fontweight='bold', va='top')
-
 
 ax_hist_2 = plt.subplot(gs[0, 1])
 

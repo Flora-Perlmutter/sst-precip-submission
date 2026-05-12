@@ -211,7 +211,6 @@ def plot_model_rankings(cv_ranks, figures_dir, metrics=None, verbose=True):
     
 
 
-# In[22]:
 
 
 def main():

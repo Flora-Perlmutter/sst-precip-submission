@@ -387,7 +387,7 @@ if filtered_dict:
         max_gap = float(lon_diff.max())
         expected_gap = float(lon_diff.diff('lon').median())
         if max_gap > expected_gap * 1.5:
-            print(f"  ⚠ Warning: Large longitude gap detected ({max_gap:.3f}° vs expected {expected_gap:.3f}°)")
+            print(f"    Warning: Large longitude gap detected ({max_gap:.3f}° vs expected {expected_gap:.3f}°)")
         else:
             print(f"    Longitude spacing OK (max: {max_gap:.3f}°, expected: {expected_gap:.3f}°)")        
 else:

@@ -213,6 +213,8 @@ gdf_std_ratio = grdc_basins_copy.merge(
 plt.rcParams.update({'font.size': 7})
 fig = plt.figure(figsize=(6.25, 4.7), dpi=600)
 gs = gridspec.GridSpec(nrows=2, ncols=2, figure=fig, width_ratios=[1.2, 1], hspace=0.4, wspace=0.35)
+
+
 # ---------------------------------------
 # Panel A: Correlation Map
 # ---------------------------------------
@@ -244,8 +246,6 @@ if not all(insig_gdf.is_empty):
                               facecolor='none', hatch='///',
                               edgecolor='black', linewidth=0.3)
     
-
-
 ax_map.coastlines(linewidth=.3)
 ax_map.add_feature(cfeature.LAND, facecolor="white")
 ax_map.set_aspect('auto')
@@ -258,7 +258,6 @@ cbar_map = fig.colorbar(sm_corr, ax=ax_map, ticks=[0, 15, 30, 45, 60],
 ax_map.set_title("Average SST-Forced Precipitation Variability")
 cbar_map.set_label("%")
 cbar_map.ax.minorticks_off()
-
 
 
 # ---------------------------------------
@@ -345,8 +344,6 @@ ax_hist.set_ylim(0, 120)
 ax_hist.set_xlim(0, 60)
 
 
-
-
 # ---------------------------------------
 # Panel C: Std Ratio Map
 # ---------------------------------------
@@ -388,7 +385,6 @@ cbar_map_2 = fig.colorbar(sm_ratio, ax=ax_map_2, ticks=np.linspace(0, 60, 5),
 ax_map_2.set_title("Average SST-Forced Precipitation Magnitude")
 cbar_map_2.set_label("%")
 cbar_map_2.ax.minorticks_off()
-
 
 
 # ---------------------------------------
@@ -484,7 +480,6 @@ ax_map_2.text(-0.15, 1.16, 'c', transform=ax_map_2.transAxes,
             fontsize=10, fontweight='bold', va='top')
 ax_hist_2.text(-0.11, 1.12, 'd', transform=ax_hist_2.transAxes, 
              fontsize=10, fontweight='bold', va='top', ha='left')
-#ax_hist_2.set_title('Distribution of SST-Forced Precipitation Magnitudes')
 
 plt.tight_layout()
 plt.savefig(FIGURES_DIR / "Figure_07_sst_importance_by_basin.png",

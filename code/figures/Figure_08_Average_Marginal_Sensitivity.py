@@ -161,11 +161,11 @@ ms_se = ms_se.where(ms_se != 0, np.nan)
 convolved = ms * sst_variability
 
 # -----------------------------------------------------------------------
-# SIGNIFICANCE MASKING (Observations: df = 7)
+# SIGNIFICANCE MASKING (Observations: df = 15)
 # -----------------------------------------------------------------------
 
 
-N_MEMBERS_OBS = 16   # df = 7  →  8 members
+N_MEMBERS_OBS = 16   # df = 15  →  8 members
 DF_OBS        = N_MEMBERS_OBS - 1   # 15
 
 # --- t-test: is ensemble mean distinguishable from zero? ---
@@ -198,7 +198,7 @@ for key, result in linear_results.items():
 
 members_stacked = xr.concat(member_arrays, dim='member')  # (member, lat, lon)
 
-N_MEMBERS_OBS = len(member_arrays)   # should be 16 (8 precip × 2 SST)
+N_MEMBERS_OBS = len(member_arrays)   # 16 (8 precip × 2 SST)
 DF_OBS        = N_MEMBERS_OBS - 1
 
 sign_agree   = (np.sign(members_stacked) == np.sign(ms)).sum(dim='member') / N_MEMBERS_OBS

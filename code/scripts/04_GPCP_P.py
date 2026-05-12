@@ -3,8 +3,8 @@
 """
 Prepare GPCP precipitation data for analysis.
 
-Updated: Flora Perlmutter, 3/6/2026
-Original: Noel Siegert, 3/21/2023
+Updated: Flora Perlmutter
+Original: Noel Siegert
 
 Description
 -----------
@@ -51,10 +51,10 @@ def main():
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 1. Load without decoding times
+    #  Load without decoding times
     gpcp = xr.open_dataset(GPCP_RAW_DIR, decode_times=False)
     
-    #2. Fix the time dimension
+    #  Fix the time dimension
     # Units are 'days since 1800-1-1 00:00:0.0', which is not compatible with decode_times
     gpcp["time"] = pd.date_range("1979-01-01", periods=len(gpcp.time), freq="MS")
 
@@ -63,10 +63,10 @@ def main():
         gpcp = gpcp.drop_vars("time_bnds")
         gpcp["time"].attrs.pop("bounds", None)  # remove the bounds reference
 
-    # 3. Attributes
+    #  Attributes
     gpcp.attrs["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # 4. Save
+    #  Save
     out_path = OUTPUT_DIR / "P.GPCP.1979.2025.nc"
     gpcp.to_netcdf(out_path)
     print(f"Saved {out_path}")

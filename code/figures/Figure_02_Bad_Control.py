@@ -20,7 +20,7 @@ Required data files
 
 Output
 ------
-  figures/paper_figures/Figure_02_bad_control.png  (repo-tracked)
+  figures/paper_figures/Figure_02_bad_control.png  
 
 """
 
@@ -197,7 +197,6 @@ def compute_attenuation_ratios(rh_results, linear_results):
     return attenuation_dict
 
 
-# In[2]:
 
 
 def plot_combined_analysis(attenuation_dict, rh_sst_corr_dict, figures_dir):
@@ -311,7 +310,6 @@ def plot_combined_analysis(attenuation_dict, rh_sst_corr_dict, figures_dir):
     return np.array(all_member_attn_means), np.array(all_member_corr_means)
 
 
-# In[3]:
 
 
 def main():
@@ -360,8 +358,6 @@ def main():
 if __name__ == "__main__":
     main()
 
-
-# In[ ]:
 
 
 

@@ -30,7 +30,7 @@ A basin is marked significant (unhatched) only when it passes BOTH gates:
 
   Note on the signal-to-noise paradox: AMIP models forced with observed SSTs
   are known to exhibit higher inter-model spread than observed, meaning the
-  t-test is conservative for AMIP.  Hatched AMIP basins may still have a
+  t-test is conservative for AMIP. Hatched AMIP basins may still have a
   real forced signal that the models underestimate in consistency.
   
   Output
@@ -220,7 +220,6 @@ precip_obs_trend_obs  = _constrained_trend(ensemble_obs,  sst_ensemble,  'observ
 # ============================================================================
 # TWO-GATE SIGNIFICANCE
 # ============================================================================
-
 def compute_member_trends(results_dict, data_key='reconstruction',
                           time_slice=('1979-01-01', '2014-12-31'),
                           member_keys=None):

@@ -3,8 +3,8 @@
 """
 Prepare TerraClimate precipitation data for analysis.
 
-Updated: Flora Perlmutter, 3/8/2026
-Original: Leah Brown, 07/28/2025
+Updated: Flora Perlmutter
+Original: Leah Brown
 
 Description
 -----------

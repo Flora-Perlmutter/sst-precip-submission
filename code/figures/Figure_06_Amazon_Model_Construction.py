@@ -166,7 +166,7 @@ def plot_ensemble_on_ax(linear_results, basin_id, ax):
     if len(common_time) == 0:
         raise ValueError("No overlapping time period across datasets.")
 
-    # Reindex all to the common time base
+    # --- Reindex all to the common time base --- 
     recons = [r.sel(time=common_time) for r in recons]
     recons_se = [r_se.sel(time=common_time) for r_se in recons_se]
     precip_obs = [p.sel(time=common_time) for p in precip_obs]

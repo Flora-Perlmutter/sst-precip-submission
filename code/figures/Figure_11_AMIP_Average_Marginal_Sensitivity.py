@@ -225,7 +225,7 @@ amip_lats = amip_ms.lat.values
 amip_lons = amip_ms.lon.values
 
 # -----------------------------------------------------------------------
-# SIGNIFICANCE MASKING (AMIP: df = 5, so 6 members)
+# SIGNIFICANCE MASKING (AMIP: df = 5, 6 members)
 # -----------------------------------------------------------------------
 N_MEMBERS_AMIP = len(linear_results_amip)   # should be 6
 DF_AMIP        = N_MEMBERS_AMIP - 1         # 5
@@ -259,7 +259,7 @@ not_significant = p_val >= 0.05   # True where NOT significant
 sign_agree     = (np.sign(members_stacked) == np.sign(amip_ms)).sum(dim='member') / N_MEMBERS_AMIP
 poor_agreement = sign_agree < 0.75
 
-# Combined mask: hatch where EITHER criterion is met
+# --- Combined mask: hatch where EITHER criterion is met --- 
 valid = np.isfinite(amip_ms)
 hatch_mask_AB = (not_significant | poor_agreement) & valid
 

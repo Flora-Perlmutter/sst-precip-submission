@@ -284,10 +284,10 @@ result = xr.apply_ufunc(
 pattern_corr_per_member = result  # dims: (basin, window, ensemble) or just (window, ensemble)
 
 # ============================================================================
-# SAVE STATEMENTS (add to end of your main script)
+# SAVE STATEMENTS
 # ============================================================================
 
-# Create output filename with timestamp or descriptive name
+# Create output filename with descriptive name
 output_filename = OUTPUTS_DIR / 'pattern_correlations_all_basins.nc'
 
 

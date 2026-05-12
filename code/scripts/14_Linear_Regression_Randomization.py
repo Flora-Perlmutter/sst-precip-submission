@@ -13,11 +13,6 @@ and precip together to estimate SE), this script resamples only SST
 while keeping precip fixed — generating a distribution of correlations
 under the null hypothesis of no temporal relationship.
 
-Key difference from run_bootstrap_se_obs.py:
-  - Resamples SST only (precip held fixed), then reassigns original
-    time coordinates so SST and precip can be regressed together
-  - Returns correlation distribution rather than SE of sensitivity maps
-
 Designed for sbatch array submission — one job per pair via --pair-index.
 
 """

@@ -49,11 +49,7 @@ warnings.filterwarnings("ignore")
 # HPC paths
 # ---------------------------------------------------------------------------
 INPUTS_DIR = CMIG_DATA / "fperlmutter/Observational_Regressions_Project/Data/Processed"
-
 OUTPUTS_DIR = DATA_DIR
-
-
-
 
 # Configuration
 ALPHA = 0.05

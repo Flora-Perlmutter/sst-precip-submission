@@ -3,8 +3,8 @@
 """
 Prepare REGEN precipitation data for analysis.
 
-Updated: Flora Perlmutter, 3/7/2026
-Original: Leah Brown, 07/29/2025
+Updated: Flora Perlmutter
+Original: Leah Brown
 
 Description
 -----------
@@ -46,7 +46,7 @@ def main():
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    # 1. Load all REGEN daily files
+    # Load all REGEN daily files
     files = sorted(glob.glob(str(REGEN_RAW_DIR / "REGEN_AllStns_V1-2019_*.nc")))
     if not files:
         raise FileNotFoundError(f"No REGEN files found in {REGEN_RAW_DIR}")
@@ -54,11 +54,11 @@ def main():
 
     regen = xr.open_mfdataset(files)
 
-    # 2. Isolate precipitation and resample to monthly totals
+    # Isolate precipitation and resample to monthly totals
     regen_P      = xr.Dataset({"P": regen.p})
     monthly_sum  = xr.Dataset({"P": regen_P["P"].resample(time="1MS").sum()})
 
-    # 5. Attributes
+    # Attributes
     monthly_sum.P.attrs["desc"]  = "Total monthly precipitation"
     monthly_sum.P.attrs["units"] = "mm/month"
     monthly_sum.attrs["info"]    = (
@@ -67,7 +67,7 @@ def main():
     )
     monthly_sum.attrs["timestamp"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    # 6. Save
+    # Save
     out_path = OUTPUT_DIR / "P.REGEN.1950-2016.nc"
     monthly_sum.to_netcdf(out_path)
     print(f"Saved {out_path}")

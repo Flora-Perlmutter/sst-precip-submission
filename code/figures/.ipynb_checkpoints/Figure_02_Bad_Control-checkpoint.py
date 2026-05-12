@@ -1,8 +1,28 @@
 #!/usr/bin/env python
 # coding: utf-8
+"""
+Figure 2: RH conditioning attenuation analysis.
 
-# In[11]:
+Author: Flora Perlmutter
 
+Description
+-----------
+Loads RH-conditioned regression results, linear regression results, and
+RH-SST correlations to assess whether column relative humidity acts as
+a confounder in the SST-precipitation relationship. Produces a 
+figure showing: a line plot of attenuation ratios (dP/dSST from RH model) / (dP/dSST from linear model) vs RH-SST correlations
+
+Required data files
+---------------------------------------------------
+  global_rh_regression_bootstrap_{P}_{SST}.nc   (run_bootstrap_se_rh_obs.py)
+  global_linear_regression_bootstrap_{P}_{SST}.nc (run_bootstrap_se_obs.py)
+  rh_sst_correlation_{P}_{SST}.nc               (compute_rh_sst_correlation.py)
+
+Output
+------
+  figures/paper_figures/Figure_02_bad_control.png  (repo-tracked)
+
+"""
 
 import numpy as np
 import xarray as xr
@@ -10,21 +30,35 @@ import os
 import sys
 import matplotlib.pyplot as plt
 import warnings
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # project root
+from paths import DATA_DIR, PAPER_FIGURE_DIR
 
 warnings.filterwarnings("ignore")
 
-# ============================================================================
-# SETUP
-# ============================================================================
+# ---------------------------------------------------------------------------
+# Paths
+# ---------------------------------------------------------------------------
+INPUTS_DIR = DATA_DIR
+OUTPUTS_DIR = DATA_DIR
+FIGURES_DIR = PAPER_FIGURE_DIR
 
-root_dir = '/dartfs-hpc/rc/lab/C/CMIG'
-outputs_dir = os.path.join(root_dir, 'fperlmutter/Observational_Regressions_Project/Data/Processed')
-figures_dir = os.path.join(root_dir, 'fperlmutter/Observational_Regressions_Project/Figures')
+# ---------------------------------------------------------------------------
+# Configuration
+# ---------------------------------------------------------------------------
+# Define precipitation datasets
+PRECIP_DATASETS = {
+    'GPCP': None,
+    'CRU': None,
+    'GPCC': None,
+    'CPC': None,
+    'UDel': None,
+    'PREC': None,
+    'TerraClimate': None,
+    'REGEN': None,
+}
 
-# Define precipitation and SST datasets
-PRECIP_DATASETS = [ 'CPC','CRU', 'GPCC','GPCP', 'PREC','REGEN', 'TerraClimate', 'UDel' ]
-SST_DATASETS = ['ERSSTv5', 'COBE-SST2']
-
+SST_DATASETS = ['ERSSTv6', 'COBE-SST3']
 
 # ============================================================================
 # LOAD RESULTS
@@ -39,18 +73,17 @@ def load_rh_results():
     
     for p_name in PRECIP_DATASETS:
         for sst_name in SST_DATASETS:
-            output_file = os.path.join(
-                outputs_dir,
+            path = INPUTS_DIR / (
                 f'global_rh_regression_bootstrap_{p_name}_{sst_name}.nc'
             )
             
-            if os.path.exists(output_file):
+            if path.exists():
                 try:
-                    result_ds = xr.open_dataset(output_file)
+                    result_ds = xr.open_dataset(path)
                     rh_results[(p_name, sst_name)] = result_ds
-                    print(f"  ✓ Loaded: {p_name} vs {sst_name}")
+                    print(f" Loaded: {p_name} vs {sst_name}")
                 except Exception as e:
-                    print(f"  ✗ Failed: {p_name} vs {sst_name} - {e}")
+                    print(f" Failed: {p_name} vs {sst_name} - {e}")
             else:
                 print(f"  - Missing: {p_name} vs {sst_name}")
     
@@ -67,16 +100,14 @@ def load_linear_results():
     
     for p_name in PRECIP_DATASETS:
         for sst_name in SST_DATASETS:
-            output_file = os.path.join(
-                outputs_dir,
-                f'global_linear_regression_bootstrap_{p_name}_{sst_name}.nc'
-            )
+            output_file = INPUTS_DIR / (
+        f'global_linear_regression_bootstrap_{p_name}_{sst_name}.nc'
+    )
             
             if os.path.exists(output_file):
                 try:
                     result_ds = xr.open_dataset(output_file)
                     
-                    # Reconstruct the result dictionary structure
                     result = {
                         'model_id': result_ds.attrs.get('model_id', 'unknown'),
                         'description': result_ds.attrs.get('description', ''),
@@ -112,14 +143,13 @@ def load_rh_sst_correlations():
     
     for p_name in PRECIP_DATASETS:
         for sst_name in SST_DATASETS:
-            corr_file = os.path.join(
-                outputs_dir, 
-                f'rh_sst_correlation_{p_name}_{sst_name}.nc'
-            )
+            corr_file = OUTPUTS_DIR / (
+    f'rh_sst_correlation_{p_name}_{sst_name}.nc'
+)
             
             if os.path.exists(corr_file):
                 try:
-                    rh_sst_corr_dict[(p_name, sst_name)] = xr.open_dataarray(corr_file)
+                    rh_sst_corr_dict[(p_name, sst_name)] = xr.open_dataset(corr_file)
                     print(f"   Loaded: {p_name} vs {sst_name}")
                 except Exception as e:
                     print(f"   Failed: {p_name} vs {sst_name} - {e}")
@@ -142,17 +172,6 @@ def compute_attenuation_ratios(rh_results, linear_results):
     
     Values < 1 indicate that RH conditioning reduces the SST-P correlation,
     suggesting RH acts as a confounder in the relationship.
-    
-    Parameters:
-    -----------
-    rh_results : dict
-        RH conditioning regression results
-    linear_results : dict
-        Linear regression results
-        
-    Returns:
-    --------
-    dict : Attenuation ratios for each precipitation-SST pair
     """
     print("\n" + "="*80)
     print("COMPUTING ATTENUATION RATIOS")
@@ -162,13 +181,10 @@ def compute_attenuation_ratios(rh_results, linear_results):
     
     for key in rh_results.keys():
         if key in linear_results:
-            # Get correlations from both models
             corr_rh = rh_results[key]['marginal_sensitivity_sst']
             corr_linear = linear_results[key]['marginal_sensitivity']
             
             if corr_rh is not None and corr_linear is not None:
-                # Attenuation ratio: how much is correlation reduced?
-                # Add small epsilon to avoid division by zero
                 attenuation = corr_rh / (corr_linear + 1e-14)
                 attenuation_dict[key] = attenuation
                 
@@ -176,190 +192,127 @@ def compute_attenuation_ratios(rh_results, linear_results):
                 median_attn = float(attenuation.median())
                 pct_attenuated = float((attenuation < 1).mean() * 100)
                 
-                print(f"  {key[0]:12s} vs {key[1]:10s}: "
-                      f"mean={mean_attn:6.3f}, median={median_attn:6.3f}, "
-                      f"{pct_attenuated:5.1f}% attenuated")
     
     print(f"\nTotal attenuation ratios computed: {len(attenuation_dict)}")
     return attenuation_dict
 
 
-# ============================================================================
-# VISUALIZATION FUNCTIONS
-# ============================================================================
+# In[2]:
+
 
 def plot_combined_analysis(attenuation_dict, rh_sst_corr_dict, figures_dir):
     """
-    Create a 3-panel figure with:
-    Panel A (top left): Attenuation ratio histogram
-    Panel B (top right): RH-SST correlation histogram
-    Panel C (bottom): Attenuation vs RH-SST correlation scatter plot
+    Plot RH-SST correlation vs Attenuation Ratio.
+    Each dataset member is plotted as a line (mean across basins binned by 
+    RH-SST correlation), with fill_between for ±1 SD across basins.
+    Ensemble mean ± SD across all members is overlaid.
     """
-    print("\nGenerating combined 3-panel analysis figure...")
-    
-    # Create figure with custom layout
-    fig = plt.figure(figsize=(16, 16))
-    gs = fig.add_gridspec(2, 2, height_ratios=[1, 1.8], hspace=0.1, wspace=0.1)
-    
-    # ========================================================================
-    # PANEL A: Attenuation Distribution
-    # ========================================================================
-    ax_a = fig.add_subplot(gs[0, 0])
-    
-    # Collect attenuation values
-    all_attn = []
-    for key, attn in attenuation_dict.items():
-        values = attn.values.flatten()
-        values = values[~np.isnan(values) & ~np.isinf(values)]
-        all_attn.extend(values)
-    
-    all_attn = np.array(all_attn)
-    
-    if len(all_attn) > 0:
-        ax_a.hist(all_attn, bins=50, color='steelblue', alpha=0.7, edgecolor='black')
-        ax_a.axvline(x=1, color='red', linestyle='--', linewidth=2, label='No attenuation')
-        ax_a.axvline(x=np.median(all_attn), color='orange', linestyle='-', linewidth=2, 
-                   label=f'Median = {np.median(all_attn):.2f}')
-        
-        ax_a.set_xlabel('Attenuation Ratio', fontsize=12)
-        ax_a.set_ylabel('Frequency', fontsize=12)
-        ax_a.set_title('Distribution of Attenuation Ratios\ndP/dSST (RH Model) / dP/dSST (Linear Model)', 
-                      fontsize=12, fontweight='bold')
-        ax_a.legend(fontsize=10)
-        ax_a.grid(True, alpha=0.3)
-        ax_a.set_ylim(0, 3.2e5)
-        ax_a.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
-    else:
-        ax_a.text(0.5, 0.5, 'No valid attenuation values', 
-                 ha='center', va='center', transform=ax_a.transAxes)
-    
-    # ========================================================================
-    # PANEL B: RH-SST Correlation Distribution
-    # ========================================================================
-    ax_b = fig.add_subplot(gs[0, 1])
-        
-    # Collect correlation values — built jointly with attenuation to match scatter plot exactly
-    all_corr = []
-    all_attn_for_hist = []
-    for key in attenuation_dict.keys():
-        if key in rh_sst_corr_dict:
-            attn = attenuation_dict[key].values.flatten()
-            corr = rh_sst_corr_dict[key].values.flatten()
-            valid_mask = ~(np.isnan(attn) | np.isnan(corr) |
-                          np.isinf(attn) | np.isinf(corr))
-            all_corr.extend(corr[valid_mask])
-            all_attn_for_hist.extend(attn[valid_mask])
+    print("\nCreating figure: RH-SST Correlation vs Attenuation Ratio...")
+    plt.rcParams.update({'font.size': 7})
+    fig, ax = plt.subplots(1, 1, figsize=(3.3, 3.3), dpi=600)
 
-    all_corr = np.array(all_corr)
-    
-    all_corr = np.array(all_corr)
-    
-    if len(all_corr) > 0:
-        ax_b.hist(all_corr, bins=50, color='darkgreen', alpha=0.7, edgecolor='black')
-        ax_b.axvline(x=0, color='red', linestyle='--', linewidth=2, label='No correlation')
-        ax_b.set_xlabel('RH-SST Correlation', fontsize=12)
-        ax_b.set_ylabel('Frequency', fontsize=12)
-        ax_b.set_title('Distribution of RH-SST Correlations', 
-                      fontsize=12, fontweight='bold')
-        ax_b.legend(fontsize=10)
-        ax_b.grid(True, alpha=0.3)
-        ax_b.set_ylim(0, 3.2e5)
-        ax_b.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
-    else:
-        ax_b.text(0.5, 0.5, 'No valid correlation values', 
-                 ha='center', va='center', transform=ax_b.transAxes)
-    
-    # ========================================================================
-    # PANEL C: Scatter Plot
-    # ========================================================================
-    ax_c = fig.add_subplot(gs[1, :])
-    
-    # Collect matching pairs
-    attn_values = []
-    corr_values = []
-    
-    for key in attenuation_dict.keys():
-        if key in rh_sst_corr_dict:
-            attn = attenuation_dict[key].values.flatten()
-            corr = rh_sst_corr_dict[key].values.flatten()
-            
-            # Filter out nan and inf
-            valid_mask = ~(np.isnan(attn) | np.isnan(corr) | 
-                          np.isinf(attn) | np.isinf(corr))
-            
-            attn_values.extend(attn[valid_mask])
-            corr_values.extend(corr[valid_mask])
-    
-    attn_values = np.array(attn_values)
-    corr_values = np.array(corr_values)
-    
-    if len(attn_values) > 0:
-        # Scatter plot with transparency
-        ax_c.scatter(corr_values, attn_values, alpha=0.05, s=1, c='steelblue', rasterized=True)
-        
-        # Add reference lines
-        ax_c.axhline(y=1, color='red', linestyle='--', linewidth=2, 
-                   label='No attenuation', zorder=10)
-        ax_c.axvline(x=0, color='gray', linestyle='--', linewidth=1, alpha=0.5)
-        
-        # Add binned statistics overlay
-        n_bins = 20
-        bin_edges = np.linspace(corr_values.min(), corr_values.max(), n_bins + 1)
-        bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
-        bin_means = []
-        bin_stds = []
-        
-        for i in range(n_bins):
-            mask = (corr_values >= bin_edges[i]) & (corr_values < bin_edges[i+1])
-            if mask.sum() > 0:
-                bin_means.append(attn_values[mask].mean())
-                bin_stds.append(attn_values[mask].std())
-            else:
-                bin_means.append(np.nan)
-                bin_stds.append(np.nan)
-        
-        bin_means = np.array(bin_means)
-        bin_stds = np.array(bin_stds)
-        
-        # Plot binned means
-        valid = ~np.isnan(bin_means)
-        ax_c.plot(bin_centers[valid], bin_means[valid], 'o-', color='darkred', 
-                linewidth=2, markersize=6, label='Binned mean', zorder=11)
-        ax_c.fill_between(bin_centers[valid], 
-                         bin_means[valid] - bin_stds[valid],
-                         bin_means[valid] + bin_stds[valid],
-                         alpha=0.2, label="±1 SD", color='darkred', zorder=9)
-        
-        ax_c.set_xlabel('RH-SST Correlation', fontsize=12)
-        ax_c.set_ylabel('Attenuation Ratio', fontsize=12)
-        ax_c.set_title('Attenuation vs RH-SST Correlation',
-                     fontsize=12, fontweight='bold')
-        ax_c.legend(fontsize=10)
-        ax_c.grid(True, alpha=0.3)
-    else:
-        ax_c.text(0.5, 0.5, 'No valid paired values', 
-                 ha='center', va='center', transform=ax_c.transAxes)
-        
-    for ax, label in zip([ax_a, ax_b, ax_c], 
-                     ['a', 'b', 'c']):
-        ax.text(-0.05, 1.08, label, transform=ax.transAxes, 
-            fontsize=12, fontweight='bold', va='top')
-    
-    # Save combined figure
-    output_path = os.path.join(figures_dir, 'Figure_2_bad_control.png')
-    plt.savefig(output_path, dpi=300, bbox_inches='tight')
-    print(f"  Saved: {output_path}")
-    plt.close()
-    
-    return all_attn, all_corr
+    N_BINS = 10  # number of bins along the RH-SST correlation axis
+
+    # ------------------------------------------------------------------ #
+    # Collect all basin-level (corr, attn) pairs across all datasets
+    # ------------------------------------------------------------------ #
+    all_member_corr_means = []
+    all_member_attn_means = []
+
+    # First pass: find global corr range to define shared bin edges
+    all_corr_vals_global = []
+    for key in attenuation_dict:
+        if key not in rh_sst_corr_dict:
+            continue
+        corr_ds  = rh_sst_corr_dict[key]
+        corr_da  = (corr_ds[list(corr_ds.data_vars)[0]]
+                    if isinstance(corr_ds, xr.Dataset) else corr_ds)
+        corr_vals = corr_da.values.ravel()
+        all_corr_vals_global.append(corr_vals[np.isfinite(corr_vals)])
+
+    all_corr_vals_global = np.concatenate(all_corr_vals_global)
+    bin_edges   = np.linspace(all_corr_vals_global.min(),
+                              all_corr_vals_global.max(), N_BINS + 1)
+    bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+
+    # ------------------------------------------------------------------ #
+    # Second pass: bin each dataset member and plot
+    # ------------------------------------------------------------------ #
+    # Accumulate binned values across members for ensemble mean/SD
+    binned_attn_all_members = []  # shape: (n_members, N_BINS)
+
+    first_member = True
+    for key in attenuation_dict:
+        if key not in rh_sst_corr_dict:
+            continue
+
+        # --- flatten basin-level arrays ---
+        attn_da   = attenuation_dict[key]
+        attn_vals = attn_da.values.ravel()
+
+        corr_ds   = rh_sst_corr_dict[key]
+        corr_da   = (corr_ds[list(corr_ds.data_vars)[0]]
+                     if isinstance(corr_ds, xr.Dataset) else corr_ds)
+        corr_vals = corr_da.values.ravel()
+
+        # keep only finite, co-valid pairs
+        valid = np.isfinite(attn_vals) & np.isfinite(corr_vals)
+        attn_vals = attn_vals[valid]
+        corr_vals = corr_vals[valid]
+
+        # --- bin by RH-SST correlation value ---
+        bin_idx       = np.digitize(corr_vals, bin_edges) - 1
+        bin_idx       = np.clip(bin_idx, 0, N_BINS - 1)
+
+        bin_mean = np.full(N_BINS, np.nan)
+        bin_std  = np.full(N_BINS, np.nan)
+
+        for b in range(N_BINS):
+            mask = bin_idx == b
+            if mask.sum() > 1:
+                bin_mean[b] = np.nanmean(attn_vals[mask])
+                bin_std[b]  = np.nanstd(attn_vals[mask])
+
+        # --- plot each member: fill_between ± SD, line for mean ---
+        valid_bins = np.isfinite(bin_mean)
+        ax.fill_between(
+            bin_centers[valid_bins],
+            (bin_mean - bin_std)[valid_bins],
+            (bin_mean + bin_std)[valid_bins],
+            alpha=0.15, color='steelblue', zorder=2,
+            label='±1 SD river basins' if first_member else None,
+        )
+        ax.plot(
+            bin_centers[valid_bins], bin_mean[valid_bins],
+            color='crimson', linewidth=0.5, alpha=0.6, zorder=30,
+            label='Ensemble member mean' if first_member else None,
+        )
+        first_member = False
+
+    # ------------------------------------------------------------------ #
+    # Reference line and formatting
+    # ------------------------------------------------------------------ #
+    ax.axhline(1.0, color='red', linewidth=1, linestyle='--', alpha=1, zorder=7, label='No attenuation')
+    ax.axhline(y=0, color='grey', alpha=.5, linestyle='-', linewidth=1)
+
+    ax.set_xlabel('RH–SST Correlation')
+    ax.set_ylabel('Attenuation Ratio')
+    ax.set_title('Attenuation vs RH–SST Correlation')
+    ax.legend(loc='best', fontsize=5)
+    ax.grid(False)
+    ax.set_xlim(min(bin_centers), max(bin_centers))
+
+    plt.tight_layout()
+    plt.savefig(
+        figures_dir / 'Figure_2_bad_control.png',
+        dpi=600, bbox_inches='tight', pad_inches=0.05
+    )
+    print("Saved: Figure_2_bad_control.png")
+    return np.array(all_member_attn_means), np.array(all_member_corr_means)
 
 
-# In[12]:
+# In[3]:
 
-
-# ============================================================================
-# MAIN EXECUTION
-# ============================================================================
 
 def main():
     
@@ -372,7 +325,6 @@ def main():
     linear_results = load_linear_results()
     rh_sst_corr_dict = load_rh_sst_correlations()
     
-    # Check if we have data
     if len(rh_results) == 0 or len(linear_results) == 0:
         print("\nERROR: Missing required regression results!")
         print("Please ensure both RH conditioning and linear regression results are available.")
@@ -385,25 +337,24 @@ def main():
         print("\nERROR: No attenuation ratios could be computed!")
         sys.exit(1)
     
-    # Create output directory for plots
-    plot_dir = os.path.join(figures_dir)
-    os.makedirs(plot_dir, exist_ok=True)
-    print(f"\nPlots will be saved to: {plot_dir}")
+    os.makedirs(FIGURES_DIR, exist_ok=True)
+    print(f"\nPlots will be saved to: {FIGURES_DIR}")
     
-    # Generate combined 3-panel plot
     print("\n" + "="*80)
     print("GENERATING COMBINED 3-PANEL FIGURE")
     print("="*80)
     
     if len(rh_sst_corr_dict) > 0:
-        attn_values, corr_values = plot_combined_analysis(attenuation_dict, rh_sst_corr_dict, plot_dir)
+        attn_values, corr_values = plot_combined_analysis(
+            attenuation_dict, rh_sst_corr_dict, FIGURES_DIR
+        )
     else:
         print("\nWarning: No RH-SST correlations found. Cannot create complete figure.")
     
     print("\n" + "="*80)
     print("ANALYSIS COMPLETE")
     print("="*80)
-    print(f"\nCombined figure saved to: {plot_dir}/rh_analysis_combined_v2.png")
+    print(f"\nCombined figure saved to: {FIGURES_DIR}/Figure_02_bad_control.png")
 
 
 if __name__ == "__main__":

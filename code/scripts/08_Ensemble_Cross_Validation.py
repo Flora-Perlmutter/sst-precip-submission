@@ -60,8 +60,8 @@ SST_NAMES    = ["ERSSTv6", "COBE-SST3"]
 # Models that use only SST (no conditioning variable)
 SST_ONLY_MODEL_IDS = {
     "P ~ β*SST",
-    "P ~ intercept + β1*SST + β2*SST²",
-    "P ~ intercept + β1*SST + β2*log(SST)",
+    "P ~ intercept + β₁*SST + β₂*SST²",
+    "P ~ intercept + β₁*SST + β₂*log(SST)",
     "P(t) ~ β₀·SST(t) + β₁·SST(t-1)",
     "P(t) ~ β₀·SST(t) + β₁·SST(t-1) + β₂·SST(t-2)",
     "P(t) ~ β₀·SST(t) + β₁·SST(t-1) + β₂·SST(t-2) + β₃·SST(t-3)",
@@ -98,7 +98,7 @@ def get_models_to_run(
             "precip":      precip_detrended,
         },
         {
-            "model_id":    "P ~ intercept + β1*SST + β2*SST²",
+            "model_id":    "P ~ intercept + β₁*SST + β₂*SST²",
             "description": "Quadratic regression on monthly raw time series",
             "time_scale":  "monthly",
             "variable":    "precip",
@@ -106,7 +106,7 @@ def get_models_to_run(
             "precip":      precip_raw,
         },
         {
-            "model_id":    "P ~ intercept + β1*SST + β2*log(SST)",
+            "model_id":    "P ~ intercept + β₁*SST + β₂*log(SST)",
             "description": "Log-linear regression on monthly raw time series",
             "time_scale":  "monthly",
             "variable":    "precip",

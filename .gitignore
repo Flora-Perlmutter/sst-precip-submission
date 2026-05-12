@@ -1,3 +1,13 @@
 *.nc
 *.json
 data/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Archived figures
+code/figures/Archive/

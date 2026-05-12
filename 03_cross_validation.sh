@@ -2,7 +2,7 @@
 #SBATCH --job-name='run_cross_validation'
 #SBATCH --output=/dartfs-hpc/rc/lab/C/CMIG/fperlmutter/jobs/array_%A_%a.out
 #SBATCH --error=/dartfs-hpc/rc/lab/C/CMIG/fperlmutter/jobs/array_%A_%a.err
-#SBATCH --array=11,13
+#SBATCH --array=0-15
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16

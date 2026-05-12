@@ -20,7 +20,7 @@ Required data files
 
 Output
 ------
-  figures/paper_figures/Figure_2_bad_control.png  (repo-tracked)
+  figures/paper_figures/Figure_02_bad_control.png  (repo-tracked)
 
 """
 
@@ -304,10 +304,10 @@ def plot_combined_analysis(attenuation_dict, rh_sst_corr_dict, figures_dir):
 
     plt.tight_layout()
     plt.savefig(
-        figures_dir / 'Figure_2_bad_control.png',
+        figures_dir / 'Figure_02_bad_control.png',
         dpi=600, bbox_inches='tight', pad_inches=0.05
     )
-    print("Saved: Figure_2_bad_control.png")
+    print("Saved: Figure_02_bad_control.png")
     return np.array(all_member_attn_means), np.array(all_member_corr_means)
 
 
@@ -354,7 +354,7 @@ def main():
     print("\n" + "="*80)
     print("ANALYSIS COMPLETE")
     print("="*80)
-    print(f"\nCombined figure saved to: {FIGURES_DIR}/Figure_2_bad_control.png")
+    print(f"\nCombined figure saved to: {FIGURES_DIR}/Figure_02_bad_control.png")
 
 
 if __name__ == "__main__":

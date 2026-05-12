@@ -13,7 +13,7 @@
 #SBATCH --partition=preemptable
 #SBATCH --account=CMIG
 
-# Run Data Processing Scripts 1-4.
+# Run Data Processing Scripts 3-7, 9, and 10.
 # Run from the project root, or from anywhere
 #    '03_CPC_P' \
 #    '04_GPCP_P' \

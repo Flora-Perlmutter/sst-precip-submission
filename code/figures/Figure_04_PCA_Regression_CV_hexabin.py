@@ -10,12 +10,14 @@ Description
 Reads processed CV results and creates a multi-panel figure comparing
 regression and PCA reconstruction skill across river basins.
 
-Each point = one basin × dataset-pair combination.
-Ensemble-mean win counts shown in corner annotation.
+Each hexagon = density of basin × dataset-pair points.
+Ensemble-mean win counts shown in top-left corner annotation.
+
+The colorscale starts at 1 and has a square root [norm = PowerNorm(gamma=0.5)] scale up to the highest color
 
 Panels:
-  (a) Paired scatter: RE for regression vs PCA
-  (b) Paired scatter: Correlation for regression vs PCA
+  (a) Hexbin density: RE for regression vs PCA
+  (b) Hexbin density: Correlation for regression vs PCA
 
 Input
 -----
@@ -35,6 +37,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import xarray as xr
+from matplotlib.colors import LinearSegmentedColormap, PowerNorm
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from paths import PAPER_FIGURE_DIR, DATA_DIR
@@ -59,33 +62,6 @@ SST_DATASETS = ["ERSSTv6", "COBE-SST3"]
 CV_DIR = DATA_DIR
 
 
-def load_cv_results(verbose=True):
-    datasets = []
-    pair_names = []
-
-    for p_name in PRECIP_DATASETS:
-        for sst_name in SST_DATASETS:
-            path = CV_DIR / f"cv_reconstruction_{p_name}_{sst_name}.nc"
-            if not path.exists():
-                if verbose:
-                    print(f"  [MISSING] {path.name}")
-                continue
-
-            ds = xr.open_dataset(path)
-            pair_label = f"{p_name}_{sst_name}"
-            ds = ds.expand_dims(pair=[pair_label])
-            datasets.append(ds)
-            pair_names.append(pair_label)
-            ds.close()
-
-            if verbose:
-                print(f"  Loaded {pair_label}")
-
-    if not datasets:
-        raise FileNotFoundError("No CV reconstruction files found.")
-
-    return xr.concat(datasets, dim="pair")
-
 # ---------------------------------------------------------------------------
 # Style
 # ---------------------------------------------------------------------------
@@ -101,18 +77,14 @@ plt.rcParams.update({
 # =============================================================================
 # PANEL FUNCTIONS
 # =============================================================================
-def plot_scatter_panel(ax, basin_df, metric, metric_label, panel_label,
-                       ensemble_pca_wins, ensemble_reg_wins):
+def plot_hexbin_panel(ax, basin_df, metric, metric_label, panel_label,
+                      ensemble_pca_wins, ensemble_reg_wins):
     """
-    Paired scatter: regression (x) vs PCA (y).
-    Each point = one basin × dataset-pair.
+    Paired hexbin density: regression (x) vs PCA (y).
+    Each hexagon = density of basin × dataset-pair points.
     Ensemble-mean win counts shown in the top-left corner.
     """
     sub = basin_df[basin_df["metric"] == metric].copy()
-
-    # Each row already has regression and pca columns (ensemble-mean per basin).
-    # To plot individual pairs we need the raw pair-level data, which is stored
-    # in the wide per_basin CSV produced by build_per_basin_table.
 
     r = sub["regression"].values
     p = sub["pca"].values
@@ -120,22 +92,45 @@ def plot_scatter_panel(ax, basin_df, metric, metric_label, panel_label,
     valid = np.isfinite(r) & np.isfinite(p)
     r, p = r[valid], p[valid]
 
-    # 1:1 line
+    # Axis limits with small margin
     lo = min(r.min(), p.min())
     hi = max(r.max(), p.max())
     margin = 0.05 * (hi - lo) if hi > lo else 0.1
-    ax.plot(
-        [lo - margin, hi + margin],
-        [lo - margin, hi + margin],
-        "k--", lw=0.8, alpha=0.5, zorder=5, label='1:1 line'
+    x_lo, x_hi = lo - margin, hi + margin
+    y_lo, y_hi = lo - margin, hi + margin
+
+    # --- Hexbin density (steelblue) ---
+    # Build a pale-steelblue -> steelblue colormap so even single-count cells
+    # stay visible, and use log-scaled counts so high-density cells don't
+    # wash out the rest of the distribution.
+    from matplotlib.colors import LinearSegmentedColormap
+    cmap_steelblue = LinearSegmentedColormap.from_list(
+        "pale_to_steelblue", ["#d6e3ef", "steelblue"]
+    )
+    ax.hexbin(
+        r, p,
+        gridsize=30,
+        cmap=cmap_steelblue,
+        mincnt=1,
+        norm=PowerNorm(gamma=0.5),
+        extent=(x_lo, x_hi, y_lo, y_hi),
+        linewidths=0.0,
+        zorder=2,
     )
 
-    ax.scatter(r, p, s=10, alpha=0.3, edgecolors="black", linewidth=0.5, zorder=2)
+    # --- 1:1 reference line (dashed) ---
+    ax.plot(
+        [x_lo, x_hi],
+        [y_lo, y_hi],
+        linestyle="--", color="0.5", lw=0.8, alpha=0.7, zorder=4,
+        label="1:1 line",
+    )
 
+    # --- Axis cosmetics ---
     ax.set_xlabel(f"Regression {metric_label}")
     ax.set_ylabel(f"PCA {metric_label}")
-    ax.set_xlim(lo - margin, hi + margin)
-    ax.set_ylim(lo - margin, hi + margin)
+    ax.set_xlim(x_lo, x_hi)
+    ax.set_ylim(y_lo, y_hi)
     ax.set_aspect("equal", adjustable="box")
 
     # Ensemble-mean win counts in top-left corner
@@ -144,17 +139,16 @@ def plot_scatter_panel(ax, basin_df, metric, metric_label, panel_label,
         f"PCA better: {ensemble_pca_wins}\nRegression better: {ensemble_reg_wins}",
         transform=ax.transAxes,
         fontsize=5, va="top", ha="left",
-        bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="0.8", alpha=0.8),
+        bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="0.8", alpha=0.85),
     )
-    
 
-    ax.legend(fontsize=5, loc='upper left')
+    ax.legend(fontsize=5, loc="upper left")
+
     ax.text(
         -.08, 1.05, panel_label,
         transform=ax.transAxes,
         fontsize=10, fontweight="bold", va="top",
     )
-
 
 
 # =============================================================================
@@ -165,7 +159,7 @@ def load_pair_level_data(ds_raw):
     Reshape the raw (pair, basin, method) Dataset into a long DataFrame
     with columns: pair, basin, metric, regression, pca.
 
-    This is what gives you one point per basin × dataset-pair in the scatter.
+    This is what gives you one point per basin × dataset-pair in the hexbin.
     """
     records = []
     metrics = ["re", "correlation", "rmse", "nrmse", "mae"]
@@ -191,6 +185,7 @@ def load_pair_level_data(ds_raw):
                 })
 
     return pd.DataFrame(records)
+
 
 def load_cv_results(verbose=True):
     """
@@ -235,6 +230,7 @@ def load_cv_results(verbose=True):
 
     return ds_combined
 
+
 # =============================================================================
 # MAIN FIGURE
 # =============================================================================
@@ -262,12 +258,12 @@ def make_figure():
     ax_b = fig.add_subplot(gs[0, 1])
 
     # --- Panels ---
-    plot_scatter_panel(
+    plot_hexbin_panel(
         ax_a, pair_df, "re", "RE", "a",
         ensemble_pca_wins=_wins("re", "pca_wins"),
         ensemble_reg_wins=_wins("re", "reg_wins"),
     )
-    plot_scatter_panel(
+    plot_hexbin_panel(
         ax_b, pair_df, "correlation", "Correlation", "b",
         ensemble_pca_wins=_wins("correlation", "pca_wins"),
         ensemble_reg_wins=_wins("correlation", "reg_wins"),
@@ -280,8 +276,6 @@ def make_figure():
     print(f"Figure saved → {outfile}")
     plt.show()
     plt.close()
-
-    
 
 
 # =============================================================================

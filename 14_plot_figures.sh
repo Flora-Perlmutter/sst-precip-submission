@@ -34,7 +34,7 @@ for script in \
      'Figure_01_Regression_Cross_Validation' \
      'Figure_02_Bad_Control' \
      'Figure_03_Regression_vs_PCA_Marginal_Sensitivity' \
-     'Figure_04_PCA_Regression_CV' \
+     'Figure_04_PCA_Regression_CV_hexabin' \
      'Figure_05_Regression_Robustness_Tests' \
      'Figure_06_Amazon_Model_Construction' \
      'Figure_07_SST_Importance_by_Basin' \

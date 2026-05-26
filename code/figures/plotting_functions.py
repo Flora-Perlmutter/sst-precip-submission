@@ -304,3 +304,29 @@ def plot_ensemble_on_ax(linear_results: dict, basin_id: int, ax) -> None:
     ax.xaxis_date()
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
     
+    
+def grid_area(xarray: xr.DataArray) -> xr.DataArray:
+    """
+    Compute fractional surface area of each grid cell on a lat/lon grid.
+
+    Returns
+    -------
+    xr.DataArray with dims ['lat', 'lon'], values in fractional Earth surface area.
+    """
+    lat = xarray["lat"]
+    lon = xarray["lon"]
+
+    lat_interval = abs(float(lat[1] - lat[0]))
+    lon_interval = abs(float(lon[1] - lon[0]))
+
+    lat_rad = np.deg2rad(lat)
+    dlat    = lat_interval * (np.pi / 180.0)
+    dlon    = lon_interval * (np.pi / 180.0)
+
+    area = dlon * (np.sin(lat_rad + dlat / 2) - np.sin(lat_rad - dlat / 2))
+
+    return xr.DataArray(
+        np.broadcast_to(area, (len(lon), len(lat))).T,
+        coords={"lat": lat, "lon": lon},
+        dims=["lat", "lon"],
+    )

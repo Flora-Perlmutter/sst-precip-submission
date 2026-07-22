@@ -12,8 +12,7 @@ produces boxplots showing the distribution of per-basin ranks for each metric.
 
 Input
 -----
-  <PROCESSED_DIR>/ranks_rmse_mean.nc
-  <PROCESSED_DIR>/ranks_adjr2_mean.nc
+  <PROCESSED_DIR>/cross_validation_ranks_<metric>.csv, one per metric in METRICS
 
 Output
 ------
@@ -46,6 +45,7 @@ from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 import matplotlib.dates as mdates
 import warnings
 import glob
+import string
 from pathlib import Path
 import sys
 
@@ -59,6 +59,10 @@ warnings.filterwarnings("ignore", category=DeprecationWarning)
 # ---------------------------------------------------------------------------
 FIGURES_DIR   = PAPER_FIGURE_DIR
 PROCESSED_DIR = DATA_DIR
+
+# Metrics to plot, one panel each (top to bottom). 'adjr2_mean' is also
+# available from the processing step if it is wanted here again.
+METRICS = ['rmse_mean', 'mae_mean', 'r2_mean']
 
 MODEL_DISPLAY_NAMES = {
       "P ~ intercept + β1*SST + β2*SST²":                        "P ~ intercept + β₁*SST + β₂*SST²",
@@ -87,6 +91,14 @@ def plot_model_rankings(cv_ranks, figures_dir, metrics=None, verbose=True):
             'label': 'RMSE Rank',
             'title': 'Model Ranking by RMSE'
         },
+        'mae_mean': {
+            'label': 'MAE Rank',
+            'title': 'Model Ranking by MAE'
+        },
+        'r2_mean': {
+            'label': 'R² Rank',
+            'title': 'Model Ranking by R²'
+        },
         'adjr2_mean': {
             'label': 'Adjusted R² Rank',
             'title': 'Model Ranking by Adjusted R²'
@@ -103,7 +115,7 @@ def plot_model_rankings(cv_ranks, figures_dir, metrics=None, verbose=True):
     
     fig, axes = plt.subplots(
         n_metrics, 1,
-        figsize=(6.27, 7.1),
+        figsize=(6.27, 3.55 * n_metrics),
         dpi=600,
         sharex=True
     )
@@ -188,7 +200,7 @@ def plot_model_rankings(cv_ranks, figures_dir, metrics=None, verbose=True):
     # --------------------------------------------------
     # Panel labels
     # --------------------------------------------------
-    for ax, label in zip(fig.axes, ['a', 'b']):
+    for ax, label in zip(fig.axes, string.ascii_lowercase):
         ax.text(
             -.037, 1.11, label,
             transform=ax.transAxes,
@@ -218,23 +230,16 @@ def main():
     print("CV RESULTS PLOTTING")
     print("="*80)
 
-    ranks_rmse_path = PROCESSED_DIR / 'cross_validation_ranks_rmse_mean.csv'
-    ranks_adjr2_path = PROCESSED_DIR / 'cross_validation_ranks_adjr2_mean.csv'
-    cv_rmse_ranks = pd.read_csv(ranks_rmse_path)
-    cv_adjr2_ranks = pd.read_csv(ranks_adjr2_path)
-    
-    # Apply display-name overrides (no-op for any model not in the dict)
-    cv_rmse_ranks  = cv_rmse_ranks.rename(columns=MODEL_DISPLAY_NAMES)
-    cv_adjr2_ranks = cv_adjr2_ranks.rename(columns=MODEL_DISPLAY_NAMES)
-    
     cv_ranks = {}
-    cv_ranks['rmse_mean']=cv_rmse_ranks
-    cv_ranks['adjr2_mean']=cv_adjr2_ranks
+    for metric in METRICS:
+        ranks_path = PROCESSED_DIR / f'cross_validation_ranks_{metric}.csv'
+        # Apply display-name overrides (no-op for any model not in the dict)
+        cv_ranks[metric] = pd.read_csv(ranks_path).rename(columns=MODEL_DISPLAY_NAMES)
 
     print(f"\nCreating plots...")
     print("="*80)
-    
-    plot_model_rankings(cv_ranks, FIGURES_DIR, verbose=True)
+
+    plot_model_rankings(cv_ranks, FIGURES_DIR, metrics=METRICS, verbose=True)
     
     print("\n" + "="*80)
     print("PLOTTING COMPLETE")

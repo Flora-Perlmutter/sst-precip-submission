@@ -269,13 +269,23 @@ def model_ranking(ds, metrics=None, verbose=True):
     """
     # Default metrics
     if metrics is None:
-        metrics = ['rmse_mean', 'adjr2_mean']
-    
+        metrics = ['rmse_mean', 'mae_mean', 'r2_mean', 'adjr2_mean']
+
     metric_info = {
         'rmse_mean': {
             'label': 'RMSE Rank',
             'lower_is_better': True,
             'title': 'Model Ranking by RMSE'
+        },
+        'mae_mean': {
+            'label': 'MAE Rank',
+            'lower_is_better': True,
+            'title': 'Model Ranking by MAE'
+        },
+        'r2_mean': {
+            'label': 'R² Rank',
+            'lower_is_better': False,
+            'title': 'Model Ranking by R²'
         },
         'adjr2_mean': {
             'label': 'Adjusted R² Rank',
@@ -404,8 +414,10 @@ def main():
     
     ranks = model_ranking(ds_averaged, verbose=True)
     
-    ranks['rmse_mean'].to_csv(PROCESSED_DIR / 'cross_validation_ranks_rmse_mean.csv')
-    ranks['adjr2_mean'].to_csv(PROCESSED_DIR / 'cross_validation_ranks_adjr2_mean.csv')
+    for metric, ranks_df in ranks.items():
+        outfile = PROCESSED_DIR / f'cross_validation_ranks_{metric}.csv'
+        ranks_df.to_csv(outfile)
+        print(f"  Saved ranks → {outfile}")
     
     print("\n" + "="*80)
     print("ANALYSIS COMPLETE")

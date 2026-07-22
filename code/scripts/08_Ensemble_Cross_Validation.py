@@ -240,7 +240,7 @@ def process_model_cv(model_dict: dict) -> tuple:
         kwargs={"model_id": model_id},
         vectorize=True,
         dask="parallelized",
-        output_dtypes=[float] * 10,
+        output_dtypes=[float] * 12,
     )
     
 
@@ -250,7 +250,7 @@ def process_model_cv(model_dict: dict) -> tuple:
             sst,
             precip,
             input_core_dims=[["time"], ["time"]],
-            output_core_dims=[[], [], [], [], [], [], [], [], [], []],
+            output_core_dims=[[]] * 12,
             **apply_kwargs,
         )
     else:
@@ -260,7 +260,7 @@ def process_model_cv(model_dict: dict) -> tuple:
             precip,
             predictor,
             input_core_dims=[["time"], ["time"], ["time"]],
-            output_core_dims=[[], [], [], [], [], [], [], [], [], []],
+            output_core_dims=[[]] * 12,
             **apply_kwargs,
         )
 
@@ -276,6 +276,8 @@ def process_model_cv(model_dict: dict) -> tuple:
             "coef_std":    cv_output[7],
             "adjr2_mean":  cv_output[8],
             "adjr2_std":   cv_output[9],
+            "r2_mean":     cv_output[10],
+            "r2_std":      cv_output[11],
         },
         attrs={
             "model_id":    model_dict["model_id"],

@@ -33,8 +33,8 @@ def _to_scalar(x) -> float:
 
 
 def _nan_result():
-    """Return a 10-tuple of NaNs for failed fits."""
-    return (np.nan,) * 10
+    """Return a 12-tuple of NaNs for failed fits."""
+    return (np.nan,) * 12
 
 
 def _run_kfold(X: np.ndarray, precip: np.ndarray, n_splits: int) -> tuple:
@@ -43,11 +43,11 @@ def _run_kfold(X: np.ndarray, precip: np.ndarray, n_splits: int) -> tuple:
 
     Returns
     -------
-    10-tuple: rmse_mean, rmse_std, mae_mean, mae_std, nrmse_mean, nrmse_std,
-              coef_mean, coef_std, adjr2_mean, adjr2_std
+    12-tuple: rmse_mean, rmse_std, mae_mean, mae_std, nrmse_mean, nrmse_std,
+              coef_mean, coef_std, adjr2_mean, adjr2_std, r2_mean, r2_std
     """
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=42)
-    rmse_list, mae_list, nrmse_list, coef_list, adjr2_list = [], [], [], [], []
+    rmse_list, mae_list, nrmse_list, coef_list, adjr2_list, r2_list = [], [], [], [], [], []
 
     for train_idx, test_idx in kf.split(X):
         X_train, X_test = X[train_idx], X[test_idx]
@@ -67,6 +67,7 @@ def _run_kfold(X: np.ndarray, precip: np.ndarray, n_splits: int) -> tuple:
             nrmse_list.append(rmse_val / np.std(y_test) if np.std(y_test) > 0 else np.nan)
             coef_list.append(model.params[1])
             adjr2_list.append(adj_r2)
+            r2_list.append(r2)
 
         except Exception:
             continue
@@ -80,6 +81,7 @@ def _run_kfold(X: np.ndarray, precip: np.ndarray, n_splits: int) -> tuple:
         _to_scalar(np.mean(nrmse_list)), _to_scalar(np.std(nrmse_list)),
         _to_scalar(np.mean(coef_list)),  _to_scalar(np.std(coef_list)),
         _to_scalar(np.mean(adjr2_list)), _to_scalar(np.std(adjr2_list)),
+        _to_scalar(np.mean(r2_list)),    _to_scalar(np.std(r2_list)),
     )
 
 
@@ -103,8 +105,8 @@ def cv_regression_model(sst, precip, model_id: str = None, n_splits: int = 5) ->
 
     Returns
     -------
-    10-tuple: rmse_mean, rmse_std, mae_mean, mae_std, nrmse_mean, nrmse_std,
-              coef_mean, coef_std, adjr2_mean, adjr2_std
+    12-tuple: rmse_mean, rmse_std, mae_mean, mae_std, nrmse_mean, nrmse_std,
+              coef_mean, coef_std, adjr2_mean, adjr2_std, r2_mean, r2_std
     """
     sst    = np.asarray(sst)
     precip = np.asarray(precip)
@@ -169,8 +171,8 @@ def cv_regression_model_with_predictor(
 
     Returns
     -------
-    10-tuple: rmse_mean, rmse_std, mae_mean, mae_std, nrmse_mean, nrmse_std,
-              coef_mean, coef_std, adjr2_mean, adjr2_std
+    12-tuple: rmse_mean, rmse_std, mae_mean, mae_std, nrmse_mean, nrmse_std,
+              coef_mean, coef_std, adjr2_mean, adjr2_std, r2_mean, r2_std
     """
     sst       = np.asarray(sst)
     precip    = np.asarray(precip)

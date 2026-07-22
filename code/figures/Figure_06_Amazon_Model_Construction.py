@@ -9,7 +9,7 @@ Description
 -----------
 4-panel figure illustrating the SST-forced precipitation reconstruction
 for the Amazon basin:
-  Panel A: Ensemble mean marginal sensitivity (dP/dSST)
+  Panel A: Ensemble mean SST sensitivity (dP/dSST)
   Panel B: January 2016 SST anomaly
   Panel C: Convolved SST × sensitivity for January 2016
   Panel D: Full reconstruction time series (ensemble mean ± SE) vs
@@ -268,7 +268,7 @@ basin_geom = gpd.GeoDataFrame(
 )
 
 # =====================
-# MARGINAL SENSITIVITY MAP (Top Left)
+# SST SENSITIVITY MAP (Top Left)
 # =====================
 vmax = .04
 vmin = -vmax
@@ -318,7 +318,7 @@ offset_text = cbar.ax.xaxis.get_offset_text()
 offset_text.set_x(1.2)  # center horizontally
 
 cbar.set_label(r'mm month$^{-1}$ K$^{-1}$', labelpad=2)
-ax_map_sensitivity.set_title(f"Amazon Marginal Sensitivity")
+ax_map_sensitivity.set_title(f"Amazon SST Sensitivity")
 
 # =====================
 # 2016 SST ANOMALY MAP (Top Middle)
@@ -403,7 +403,7 @@ offset_text = cbar_conv.ax.xaxis.get_offset_text()
 offset_text.set_x(1.2)  # center horizontally
 
 cbar_conv.set_label(r'mm month$^{-1}$', labelpad=2)
-ax_map_convolved.set_title("Jan 2016 Total Sensitivity")
+ax_map_convolved.set_title("Jan 2016 SST-Forced Precipitation")
 
 # =====================
 # RECONSTRUCTION TIME SERIES (Bottom, Full Width)
@@ -429,9 +429,13 @@ for ax, label in zip([ax_map_sensitivity],
                      ['a']):
     ax.text(-0.22, 1.27, label, transform=ax.transAxes,
                 fontsize=10, fontweight='bold', va='top')
-for ax, label in zip([ax_map_sst_2016, ax_map_convolved], 
-                     ['b', 'c']):
+for ax, label in zip([ax_map_sst_2016], 
+                     ['b']):
     ax.text(-0.15, 1.27, label, transform=ax.transAxes,
+                fontsize=10, fontweight='bold', va='top')
+for ax, label in zip([ ax_map_convolved], 
+                     [ 'c']):
+    ax.text(-0.29, 1.27, label, transform=ax.transAxes,
                 fontsize=10, fontweight='bold', va='top')
 for ax, label in zip([ax_line], 
                      ['d']):

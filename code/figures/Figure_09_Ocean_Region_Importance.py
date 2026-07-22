@@ -10,10 +10,10 @@ Description
 3-panel global map figure showing where ocean SST matters for precipitation:
   Panel A: Min-max normalized total sensitivity
                      (|MS| × SST variability), basin-averaged then normalized
-  Panel B: Min-max normalized marginal sensitivity magnitude
+  Panel B: Min-max normalized SST sensitivity magnitude
                      (|MS|), basin-averaged then normalized
   Panel C: Number of GRDC basins for which each ocean grid cell
-                     has a significant marginal sensitivity
+                     has a significant SST sensitivity
 
 Required data files
 -------------------------------
@@ -138,7 +138,7 @@ sst_variability = sst_ensemble.std('time')
 # -------------------------------
 basin_ids = grdc_basins['MRBID'].values
 
-# --- Marginal sensitivity ---
+# --- SST sensitivity ---
 ms = ensemble_obs['marginal_sensitivity_sst'].reindex(basin=basin_ids)
 
 # --- Convolved quantity |MS| * SST variability ---
@@ -192,7 +192,7 @@ ocean_cmap = plt.get_cmap('PuRd', num_levels_ocean)
 ocean_norm = BoundaryNorm(np.linspace(0, ocean_vmax, num_levels_ocean + 1), ocean_cmap.N)
 
 # -------------------------------
-# Panel A: Number of Basins with Significant Marginal Sensitivity
+# Panel A: Number of Basins with Significant SST Sensitivity
 # -------------------------------
 ax1 = fig.add_subplot(gs[0, 0], projection=ccrs.Robinson(central_longitude=180))
 ax1.set_global()
@@ -216,12 +216,12 @@ cbar1 = fig.colorbar(
     shrink=0.8,
     pad=0.06
 )
-ax1.set_title("SST Sensitivity")
+ax1.set_title("SST Influence")
 cbar1.set_label('Number of River Basins', ) 
 cbar1.ax.minorticks_off()
 
 # -------------------------------
-# Panel B: Normalized Marginal Sensitivity
+# Panel B: Normalized SST Sensitivity
 # -------------------------------
 ax2 = fig.add_subplot(gs[0, 1], projection=ccrs.Robinson(central_longitude=180))
 ax2.set_global()
@@ -244,7 +244,7 @@ cbar2 = fig.colorbar(
     shrink=0.8,
     pad=0.06
 )
-ax2.set_title("Marginal Sensitivity")
+ax2.set_title("SST Sensitivity")
 cbar2.ax.minorticks_off()
 
 # -------------------------------
@@ -269,7 +269,7 @@ cbar3 = fig.colorbar(
     shrink=0.8,
     pad=0.06
 )
-ax3.set_title("Total Sensitivity")
+ax3.set_title("SST-Forced Contribution")
 cbar3.ax.minorticks_off()
 
 

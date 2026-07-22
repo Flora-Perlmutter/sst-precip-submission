@@ -8,9 +8,9 @@ Author: Flora Perlmutter
 Description
 -----------
 4-panel figure summarising across-basin SST importance:
-  Panel A: Map of ensemble mean correlation between SST reconstruction
+  Panel A: Map of ensemble mean correlation^2 between SST reconstruction
            and observed precipitation (SST-forced variability %)
-  Panel B: Histogram of the same correlation, with selected basins annotated
+  Panel B: Histogram of the same correlation^2, with selected basins annotated
   Panel C: Map of std(SST reconstruction) / std(observed precip) × 100
            (SST-forced magnitude %)
   Panel D: Histogram of the same ratio, with selected basins annotated
@@ -216,12 +216,12 @@ gs = gridspec.GridSpec(nrows=2, ncols=2, figure=fig, width_ratios=[1.2, 1], hspa
 
 
 # ---------------------------------------
-# Panel A: Correlation Map
+# Panel A: Correlation^2 Map
 # ---------------------------------------
 ax_map = plt.subplot(gs[0, 0], projection=ccrs.Robinson(central_longitude=0))
 
 # Define colormap and normalization
-corr_vmin, corr_vmax = 0, 60
+corr_vmin, corr_vmax = 0, 30
 corr_cmap = plt.get_cmap('Blues', 20)
 corr_norm = BoundaryNorm(np.linspace(corr_vmin, corr_vmax, 21), corr_cmap.N)
 
@@ -230,7 +230,7 @@ ax_map.add_feature(cfeature.OCEAN, facecolor="lightgray", alpha=0.3)
 
 # Significant basins
 sig_gdf = gdf_corr.copy()
-sig_gdf['corr_plot'] = corr_mean.values*100
+sig_gdf['corr_plot'] = (corr_mean.values**2)*100
 sig_gdf = sig_gdf[sig_gdf['corr_plot'] > 0]
 
 for idx, row in sig_gdf.iterrows():
@@ -253,7 +253,7 @@ ax_map.set_aspect('auto')
 # Add colorbar
 sm_corr = plt.cm.ScalarMappable(norm=corr_norm, cmap=corr_cmap)
 sm_corr.set_array([])
-cbar_map = fig.colorbar(sm_corr, ax=ax_map, ticks=[0, 15, 30, 45, 60], 
+cbar_map = fig.colorbar(sm_corr, ax=ax_map, ticks=[0, 6, 12, 18, 24, 30], 
                         orientation='horizontal', shrink=.8, pad=0.05)
 ax_map.set_title("Average SST-Forced Precipitation Variability")
 cbar_map.set_label("%")
@@ -261,19 +261,19 @@ cbar_map.ax.minorticks_off()
 
 
 # ---------------------------------------
-# Panel B: Correlation Histogram
+# Panel B: Correlation^2 Histogram
 # ---------------------------------------
 ax_hist = plt.subplot(gs[0, 1])
 
-corr_values = gdf_corr["correlation"].dropna().values*100
-# Match bins to colorbar ticks: [0, 15, 30, 45, 60]
-hist_bins = np.linspace(0, 60, 21)  # Creates bins that align with 15% intervals
+corr_values = (gdf_corr["correlation"].dropna().values**2)*100
+# Match bins to colorbar ticks: [0, 6, 12, 18, 24, 30]
+hist_bins = np.linspace(0, 30, 21)  # Creates bins that align with 15% intervals
 n, bins, patches = ax_hist.hist(corr_values, bins=hist_bins, color="lightblue", linewidth=.5, 
                                  edgecolor="black", alpha=0.7)
 ax_hist.set_xlabel("Average SST-Forced Precipitation Variability (%)")
 ax_hist.set_ylabel("Number of Basins")
 # Set x-axis ticks to match colorbar
-ax_hist.set_xticks([0, 15, 30, 45, 60])
+ax_hist.set_xticks([0, 6, 12, 18, 24, 30])
 
 # Highlight basins
 highlight_basins = ["MURRAY",  "YELLOW RIVER", 
@@ -291,7 +291,7 @@ for basin_name in highlight_basins:
     row = gdf_corr.loc[gdf_corr['MRBID'] == basin_id]
     if row.empty:
         continue
-    val = row['correlation'].values[0]*100
+    val = (row['correlation'].values[0]**2)*100
     bin_idx = np.clip(np.digitize(val, bins) - 1, 0, len(bins)-2)
     bin_center = 0.5 * (bins[bin_idx] + bins[bin_idx+1])
     bin_height = n[bin_idx]
@@ -341,7 +341,7 @@ for basin_name in highlight_basins:
         )
 #ax_hist.set_title('Distribution of SST-Forced Precipitation Variabilities')
 ax_hist.set_ylim(0, 120)
-ax_hist.set_xlim(0, 60)
+ax_hist.set_xlim(0, 30)
 
 
 # ---------------------------------------

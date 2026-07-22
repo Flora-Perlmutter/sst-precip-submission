@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 """
-Combined Figure 5: Randomization experiment and marginal sensitivity
+Combined Figure 5: Randomization experiment and SST sensitivity
 pattern correlation stability.
 
 Author: Flora Perlmutter
@@ -16,7 +16,7 @@ Description
                    experiment (SST resampled, precipitation held fixed).
                    Vertical dashed lines mark the mean of each distribution.
 
-  Panel B (right): Correlation between each 30-year rolling-window marginal
+  Panel B (right): Correlation between each 30-year rolling-window SST
                    sensitivity estimate and the full-period ensemble mean,
                    across all basins. Shaded bands (±1 SD across basins) and
                    per-member lines show pattern stability over time.
@@ -241,7 +241,7 @@ print(f"Min plotted value: {global_min}")
 print(f"Max plotted value: {global_max}")
 
 ax_B.set_ylabel('Pattern Correlation')
-ax_B.set_title('Stability of the Marginal Sensitivity Over Time')
+ax_B.set_title('Stability of the SST Sensitivity Over Time')
 ax_B.set_xlabel('Last Year of 30-Year Window')
 ax_B.set_ylim([0.4, 1.0])
 ax_B.set_xlim(rolling_years.min(), rolling_years.max())

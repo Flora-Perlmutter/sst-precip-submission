@@ -3,9 +3,6 @@
 """
 K-fold cross-validation functions for SST-precipitation regression models.
 
-Author: Flora Perlmutter
-Refactored for reproducibility: February 24, 2026
-
 Usage
 -----
     from cross_validation_functions import (

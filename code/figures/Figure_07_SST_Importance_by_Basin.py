@@ -485,5 +485,91 @@ plt.tight_layout()
 plt.savefig(FIGURES_DIR / "Figure_07_sst_importance_by_basin.png",
             dpi=600, pad_inches = .1)
 
+# ============================================================================
+# NUMBERS FOR THE MANUSCRIPT PARAGRAPH
+# ============================================================================
+# Panels a/b plot correlation**2 as a percentage (r-squared, the shared
+# variance). Panels c/d plot std(reconstruction)/std(observed) as a
+# percentage. These are different quantities: the std ratio is a ratio of
+# magnitudes and must NOT be squared.
+
+r_vals     = gdf_corr["correlation"].dropna().values.astype(float)
+r2_pct     = (r_vals ** 2) * 100
+ratio_vals = gdf_std_ratio["std_ratio"].dropna().values.astype(float)
+
+print("\n" + "=" * 78)
+print("FIGURE 7 -- NUMBERS FOR THE MANUSCRIPT PARAGRAPH")
+print("=" * 78)
+
+print(f"\nBasins with a correlation value : {r_vals.size}")
+print(f"Basins with a std-ratio value   : {ratio_vals.size}")
+print(f"Basins with r > 0               : {(r_vals > 0).sum()} "
+      f"({(r_vals > 0).mean() * 100:.2f}%)")
+print(f"Basins with r <= 0              : {(r_vals <= 0).sum()} "
+      f"(hatched in panel a; note r^2 hides their sign)")
+
+# ---------------------------------------------------------------------------
+# Panels a/b -- correlation and shared variance
+# ---------------------------------------------------------------------------
+print("\n--- Panels a/b: correlation r and r^2 ---")
+print("(percentiles are computed independently per column; they refer to the")
+print(" same basin only where every r > 0)")
+print(f"{'stat':>8}  {'r':>8}  {'r^2 (%)':>9}")
+for label, q in [('min', 0), ('5th', 5), ('25th', 25), ('median', 50),
+                 ('75th', 75), ('95th', 95), ('max', 100)]:
+    print(f"{label:>8}  {np.percentile(r_vals, q):8.3f}  {np.percentile(r2_pct, q):9.1f}")
+print(f"{'mean':>8}  {r_vals.mean():8.3f}  {r2_pct.mean():9.1f}")
+
+counts, edges = np.histogram(r2_pct, bins=hist_bins)
+peak = int(counts.argmax())
+print(f"\nModal bin of panel b : {edges[peak]:.1f}-{edges[peak + 1]:.1f}% "
+      f"({counts[peak]} basins)")
+print(f"Middle 50% of basins : {np.percentile(r2_pct, 25):.1f}% to "
+      f"{np.percentile(r2_pct, 75):.1f}% r^2")
+print(f"Middle 90% of basins : {np.percentile(r2_pct, 5):.1f}% to "
+      f"{np.percentile(r2_pct, 95):.1f}% r^2")
+
+# ---------------------------------------------------------------------------
+# Panels c/d -- relative magnitude
+# ---------------------------------------------------------------------------
+print("\n--- Panels c/d: std(reconstruction) / std(observed), % ---")
+for label, q in [('min', 0), ('5th', 5), ('25th', 25), ('median', 50),
+                 ('75th', 75), ('95th', 95), ('max', 100)]:
+    print(f"{label:>8}  {np.percentile(ratio_vals, q):8.1f}")
+print(f"{'mean':>8}  {ratio_vals.mean():8.1f}")
+
+in_range = (ratio_vals >= 1) & (ratio_vals <= 15)
+print(f"\nBasins with ratio 1-15% : {in_range.sum()} of {ratio_vals.size} "
+      f"({in_range.mean() * 100:.1f}%)")
+print(f"Basins with ratio > 30% : {(ratio_vals > 30).sum()}")
+
+# ---------------------------------------------------------------------------
+# Basins annotated in the figure
+# ---------------------------------------------------------------------------
+print("\n--- Annotated basins ---")
+print(f"{'basin':<24}{'r':>8}{'r^2 (%)':>10}{'std ratio (%)':>15}")
+for basin_name in highlight_basins:
+    bid = basin_id_for_name(basin_name)
+    if bid is None:
+        continue
+    bid = float(bid)
+    canonical = basin_name_for_id(bid)
+    r_row = gdf_corr.loc[gdf_corr['MRBID'] == bid, 'correlation']
+    s_row = gdf_std_ratio.loc[gdf_std_ratio['MRBID'] == bid, 'std_ratio']
+    r_b = float(r_row.values[0]) if len(r_row) else np.nan
+    s_b = float(s_row.values[0]) if len(s_row) else np.nan
+    print(f"{canonical:<24}{r_b:>8.3f}{(r_b ** 2) * 100:>10.1f}{s_b:>15.1f}")
+
+# ---------------------------------------------------------------------------
+# Direct comparison against the numbers currently in the paragraph
+# ---------------------------------------------------------------------------
+print("\n--- Paragraph numbers, r vs r^2 ---")
+print("If a quoted figure was a correlation, its r^2 equivalent is:")
+for quoted in [0.11, 0.20, 0.30, 0.41, 0.50]:
+    print(f"  r = {quoted:.2f}  ->  r^2 = {quoted ** 2 * 100:.1f}%")
+print("The 42% Amazon magnitude is a std ratio, not a correlation -- leave it")
+print("as it is; squaring it would be a category error.")
+print("=" * 78 + "\n")
+
 plt.show()
 

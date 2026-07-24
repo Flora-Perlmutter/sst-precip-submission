@@ -93,8 +93,8 @@ def cv_regression_model(sst, precip, model_id: str = None, n_splits: int = 5) ->
     Supported model_ids
     -------------------
     'P ~ β*SST'
-    'P ~ intercept + β1*SST + β2*SST²'
-    'P ~ intercept + β1*SST + β2*log(SST)'
+    'P ~ intercept + β₁*SST + β₂*SST²'
+    'P ~ intercept + β₁*SST + β₂*log(SST)'
     'P(t) ~ β₀·SST(t) + β₁·SST(t-1)'               (1 lag)
     'P(t) ~ β₀·SST(t) + ... + β₂·SST(t-2)'          (2 lags)
     'P(t) ~ β₀·SST(t) + ... + β₃·SST(t-3)'          (3 lags)
@@ -118,9 +118,9 @@ def cv_regression_model(sst, precip, model_id: str = None, n_splits: int = 5) ->
     # Build lagged design matrix
     if model_id == "P ~ β*SST":
         X_list = [sst]
-    elif model_id == "P ~ intercept + β1*SST + β2*SST²":
+    elif model_id == "P ~ intercept + β₁*SST + β₂*SST²":
         X_list = [sst, sst ** 2]
-    elif model_id == "P ~ intercept + β1*SST + β2*log(SST)":
+    elif model_id == "P ~ intercept + β₁*SST + β₂*log(SST)":
         X_list = [sst, np.log(np.where(sst > 0, sst, np.nan))]
     elif model_id == "P(t) ~ β₀·SST(t) + β₁·SST(t-1)":
         X_list, precip = [sst[:-1], sst[1:]], precip[1:]
@@ -131,7 +131,11 @@ def cv_regression_model(sst, precip, model_id: str = None, n_splits: int = 5) ->
     elif model_id == "P(t) ~ β₀·SST(t) + β₁·SST(t-1) + β₂·SST(t-2) + β₃·SST(t-3) + β₄·SST(t-4)":
         X_list, precip = [sst[:-4], sst[1:-3], sst[2:-2], sst[3:-1], sst[4:]], precip[4:]
     else:
-        X_list = [sst]
+        # Every SST-only model_id from 08_Ensemble_Cross_Validation must match a
+        # branch above. Falling through here means the model_id string drifted
+        # out of sync (e.g. ASCII 'β1' vs Unicode 'β₁'), which previously caused
+        # the quadratic and log models to be fit silently as plain linear.
+        raise ValueError(f"Unrecognized SST-only model_id: {model_id!r}")
 
     X = sm.add_constant(np.column_stack(X_list))
     return _run_kfold(X, precip, n_splits)

@@ -12,6 +12,7 @@
 #SBATCH --mail-user=flora.l.perlmutter.gr@dartmouth.edu
 #SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --account=CMIG
+#SBATCH --partition=preemptable
 
 source /optnfs/common/miniconda3/etc/profile.d/conda.sh
 module load python
@@ -26,5 +27,5 @@ echo "Running on $(hostname)"
 echo "Task ID: $SLURM_ARRAY_TASK_ID"
 echo "CPUs per task: $SLURM_CPUS_PER_TASK"
 
-python3 /dartfs-hpc/rc/lab/C/CMIG/fperlmutter/git_repos/sst-precipitation-sensitivity/code/scripts/12_RH_Regression_Bootstrap_SE.py --pair-index $SLURM_ARRAY_TASK_ID
+python3 /dartfs-hpc/rc/lab/C/CMIG/fperlmutter/git_repos/sst-precip-submission/code/scripts/12_RH_Regression_Bootstrap_SE.py --pair-index $SLURM_ARRAY_TASK_ID
 

@@ -40,8 +40,9 @@ from tqdm import tqdm
 
 # --- project paths ---
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # project root
-from paths import CMIG_DATA, DATA_DIR
-from regression_functions import waterbasin, detrend_dim, grid_area, fdr_correction, regression_slope_se
+from paths import CMIG_DATA, DATA_DIR, bootstrap_file
+from regression_functions import detrend_dim, grid_area, fdr_correction, regression_slope_se
+from sensitivity_common import TREND_PERIODS, trend_over
 
 warnings.filterwarnings("ignore")
 
@@ -165,10 +166,20 @@ def run_single_bootstrap(seed, n_time, sst_detrended, p_detrended, sst_anom,
 
     # Reconstruction
     reconstruction_boot = (sst_anom * slope_sig_boot).sum(('lat', 'lon'))
-    
+
+    # Derived quantities are computed here because this is the only place a
+    # replicate exists — the caller keeps Welford summaries, not the samples.
+    # See 11_Linear_Regression_Bootstrap_SE.py for why a trend over a replicate
+    # is well defined.
+    trend_boot  = xr.concat(
+        [trend_over(reconstruction_boot, period) for period in TREND_PERIODS],
+        dim='period',
+    )
+
     result = (
         reconstruction_boot.values.astype(np.float32),
-        slope_sig_boot.values.astype(np.float32)
+        slope_sig_boot.values.astype(np.float32),
+        trend_boot.values.astype(np.float32),
     )
 
     return (result)
@@ -230,6 +241,10 @@ def bootstrap_se_incremental(sst_detrended, p_detrended, sst_anom, area_precompu
     # Initialize incremental statistics
     recon_stats = IncrementalStats((n_time, n_basins), dtype=np.float32)
     slope_stats = IncrementalStats((n_lat, n_lon, n_basins), dtype=np.float32)
+
+    # Full distributions rather than Welford summaries; see script 11.
+    trend_boot_all  = np.full((n_bootstrap, len(TREND_PERIODS), n_basins),
+                              np.nan, dtype=np.float32)
     
     print_memory_status("After initializing incremental stats")
     
@@ -262,9 +277,10 @@ def bootstrap_se_incremental(sst_detrended, p_detrended, sst_anom, area_precompu
         print_memory_status(f"After batch {batch_idx + 1} computation")
         
         # Update incremental statistics with batch results
-        for recon_values, slope_values in results:
+        for offset, (recon_values, slope_values, trend_values) in enumerate(results):
             recon_stats.update(recon_values)
             slope_stats.update(slope_values)
+            trend_boot_all[start_idx + offset]  = trend_values
         
         # Aggressively clean up batch results
         del results
@@ -295,9 +311,20 @@ def bootstrap_se_incremental(sst_detrended, p_detrended, sst_anom, area_precompu
             'basin': p_detrended.basin
         })
     
+    period_labels = [f"{start[:4]}-{end[:4]}" for start, end in TREND_PERIODS]
+
+    trend_boot = xr.DataArray(
+        trend_boot_all,
+        dims=['bootstrap', 'period', 'basin'],
+        coords={
+            'bootstrap': np.arange(n_bootstrap),
+            'period': period_labels,
+            'basin': p_detrended.basin
+        })
+
     print_memory_status("After converting to xarray")
-    
-    return (reconstruction_se, marginal_sensitivity_se)
+
+    return (reconstruction_se, marginal_sensitivity_se, trend_boot)
 
 # ============================================================================
 # PROCESS SINGLE PAIR
@@ -379,7 +406,7 @@ def process_pair(p_name, p_anom, sst_name, sst_anom, block_size):
     
     print(f"  Selected block size: {block_size} months based on SST dataset name: {sst_name}")
     
-    reconstruction_se, marginal_sensitivity_se = bootstrap_se_incremental(
+    reconstruction_se, marginal_sensitivity_se, trend_boot = bootstrap_se_incremental(
         sst_detrended, p_detrended, sst_anom, area_precomputed,
         ALPHA, N_BOOTSTRAP, block_size, RANDOM_SEED
     )
@@ -393,7 +420,13 @@ def process_pair(p_name, p_anom, sst_name, sst_anom, block_size):
     print("  Computing metrics...")
     
     corr = xr.corr(reconstruction, p_anom, 'time')
-    
+
+    # Trend point estimates; see script 11.
+    reconstruction_trend = xr.concat(
+        [trend_over(reconstruction, period) for period in TREND_PERIODS],
+        dim='period',
+    ).assign_coords(period=trend_boot['period'])
+
     # ========================================================================
     # Clean up before returning
     # ========================================================================
@@ -409,12 +442,15 @@ def process_pair(p_name, p_anom, sst_name, sst_anom, block_size):
         'variable': 'precip',
         'alpha': ALPHA,
         'n_bootstrap': N_BOOTSTRAP,
+        'block_size': block_size,
         'reconstruction': reconstruction,
         'reconstruction_se': reconstruction_se,
         'observed_precip': p_anom,
         'correlation': corr,
         'marginal_sensitivity_se': marginal_sensitivity_se,
         'marginal_sensitivity': slope_sig,
+        'reconstruction_trend': reconstruction_trend,
+        'trend_boot': trend_boot,
     }
     
     print(f"\n SUCCESS: {p_name} vs {sst_name}")
@@ -507,7 +543,7 @@ def main():
     key, result = process_pair(p_name, p_da, sst_name, sst_da, block_size)
 
     # Save result as NetCDF instead of pickle
-    output_file = OUTPUTS_DIR / f'global_linear_regression_bootstrap_amip_{p_name}_{sst_name}.nc'
+    output_file = bootstrap_file(p_name, sst_name, amip=True)
 
     # Convert result dict to xarray Dataset for saving
     result_ds = xr.Dataset({
@@ -517,6 +553,13 @@ def main():
         'correlation': result['correlation'],
         'marginal_sensitivity_se': result['marginal_sensitivity_se'],
         'marginal_sensitivity': result['marginal_sensitivity'],
+        'reconstruction_trend': result['reconstruction_trend'],
+        'trend_boot': result['trend_boot'],
+    })
+
+    result_ds['trend_boot'].attrs.update({
+        'long_name': 'per-decade reconstruction trend, one value per bootstrap replicate',
+        'units': 'mm/month/decade',
     })
 
     # Add metadata as attributes
@@ -526,6 +569,7 @@ def main():
         'variable': result['variable'],
         'alpha': result['alpha'],
         'n_bootstrap': result['n_bootstrap'],
+        'block_size': result['block_size'],
         'precip_dataset': p_name,
         'sst_dataset': sst_name,
     })

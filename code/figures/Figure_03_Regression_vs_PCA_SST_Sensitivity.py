@@ -47,7 +47,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # project root
-from paths import DATA_DIR, PAPER_FIGURE_DIR
+from paths import DATA_DIR, PAPER_FIGURE_DIR, bootstrap_file
 from plotting_functions import (
     compute_ensemble_means,
     basin_id_for_name,
@@ -92,7 +92,7 @@ linear_results = {}
 
 for p_name in PRECIP_DATASETS:
     for sst_name in SST_DATASETS:
-        output_file = OUTPUTS_DIR / f"global_linear_regression_bootstrap_{p_name}_{sst_name}.nc"
+        output_file = bootstrap_file(p_name, sst_name)
         if os.path.exists(output_file):
             try:
                 ds = xr.open_dataset(output_file)
@@ -296,3 +296,49 @@ out_fig = FIGURES_DIR / "Figure_03_regression_vs_pca_SST_sensitivity.png"
 plt.savefig(out_fig, dpi=600, bbox_inches="tight")
 print(f"\nFigure saved → {out_fig}")
 plt.show()
+
+# ============================================================================
+# CORROBORATE MANUSCRIPT TEXT: distribution of regression vs PCA correlations
+# ============================================================================
+print("\n" + "=" * 70)
+print("Regression vs PCA pattern correlation distribution statistics")
+print("=" * 70)
+
+corr_clean = grdc_basins["correlation"].dropna().values
+n_total = len(corr_clean)
+
+# --- "positively correlated in nearly all basins" ---
+n_positive = int((corr_clean > 0).sum())
+pct_positive = 100 * n_positive / n_total
+
+# --- central tendency ("centered near 0.50") ---
+mean_corr   = np.mean(corr_clean)
+median_corr = np.median(corr_clean)
+
+# --- "most basins between 0.30 and 0.70" ---
+n_in_range = int(((corr_clean >= 0.30) & (corr_clean <= 0.70)).sum())
+pct_in_range = 100 * n_in_range / n_total
+
+# --- IQR, for a distribution-agnostic check on "most" ---
+q25, q75 = np.percentile(corr_clean, [25, 75])
+
+print(f"Total basins with valid correlation      : {n_total}")
+print(f"Basins with positive correlation         : {n_positive} ({pct_positive:.1f}%)")
+print()
+print(f"Mean correlation                          : {mean_corr:.3f}")
+print(f"Median correlation                        : {median_corr:.3f}")
+print()
+print(f"Basins with correlation in [0.30, 0.70]  : {n_in_range} ({pct_in_range:.1f}%)")
+print(f"25th percentile                           : {q25:.3f}")
+print(f"75th percentile                           : {q75:.3f}")
+print()
+print(f"Min correlation                           : {corr_clean.min():.3f}")
+print(f"Max correlation                           : {corr_clean.max():.3f}")
+
+# ----------------------------------------------------------------------
+# Flag basins driving any negative-correlation tail (for context/caveats)
+# ----------------------------------------------------------------------
+negative_basins = grdc_basins.loc[grdc_basins["correlation"] < 0, ["MRBID", "correlation"]]
+if len(negative_basins) > 0:
+    print(f"\n{len(negative_basins)} basins with negative correlation:")
+    print(negative_basins.sort_values("correlation").to_string(index=False))

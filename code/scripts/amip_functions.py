@@ -175,7 +175,12 @@ def linear_trend(da: xr.DataArray) -> xr.DataArray:
     Output units: [input_units / decade].
     """
     coeff = da.polyfit(dim="time", deg=1, skipna=True)
-    return coeff.polyfit_coefficients.sel(degree=1) * 10.0
+    trend = coeff.polyfit_coefficients.sel(degree=1) * 10.0
+    # .sel leaves a scalar `degree` coordinate attached. Nothing selects on it,
+    # but it survives into saved NetCDF and then into every to_dataframe() as a
+    # spurious column, which collides the third time a GeoDataFrame is merged
+    # (pandas has already used degree_x and degree_y by then).
+    return trend.drop_vars("degree", errors="ignore")
 
 
 # ---------------------------------------------------------------------------

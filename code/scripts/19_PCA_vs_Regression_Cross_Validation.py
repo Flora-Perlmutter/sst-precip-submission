@@ -405,18 +405,16 @@ def regression_predict_fold(
     else:
         slope_area = (area * slope).transpose("lat", "lon")
         pval       = pval.transpose("lat", "lon")
-    
-    if "basin" in p_train.dims:
-        slope_area = (area * slope).transpose("lat", "lon", "basin")
-        pval       = pval.transpose("lat", "lon", "basin")
-        fdr_mask   = fdr_correction(pval, alpha_FDR=alpha)
-    else:
-        slope_area = (area * slope).transpose("lat", "lon")
-        pval       = pval.transpose("lat", "lon")
-        # expand a dummy basin dim, run FDR, then squeeze back
-        pval_expanded = pval.expand_dims("basin")
-        fdr_mask = fdr_correction(pval_expanded, alpha_FDR=alpha).squeeze("basin")
-    
+
+    # The test family is the SST grid cells within this basin — the same set the
+    # reconstruction sums over below. Works with or without a basin dimension, so
+    # no dummy axis is needed.
+    #
+    # This previously expanded a length-1 basin axis and corrected over it, which
+    # made N=1 and reduced BH to an uncorrected p <= alpha threshold.
+    fdr_mask = fdr_correction(pval, alpha_FDR=alpha, core_dims=("lat", "lon"))
+
+
     slope_sig  = slope_area.where(fdr_mask, 0.0)
     recon_test = (sst_anom_test * slope_sig).sum(("lat", "lon"))
 

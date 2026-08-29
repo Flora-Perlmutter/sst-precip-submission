@@ -14,12 +14,10 @@
 #SBATCH --account=CMIG
 
 
-# Run Data Processing Script 16.
-# Regenerate all paper figures (Figures 1-11).
 
 set -e  # stop on first error
 # repo location
-REPO_DIR=/dartfs-hpc/rc/lab/C/CMIG/fperlmutter/git_repos/sst-precipitation-sensitivity
+REPO_DIR=/dartfs-hpc/rc/lab/C/CMIG/fperlmutter/git_repos/sst-precip-submission
 
 cd $REPO_DIR
 

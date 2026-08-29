@@ -12,6 +12,11 @@ SST-precipitation sensitivity and rolling 30-year window sensitivities,
 across all basins. Designed to assess temporal stationarity of the
 SST-precipitation relationship.
 
+Both the full-period and the rolling-window sensitivities are FDR-corrected
+before they are correlated, with the same (lat, lon)-per-basin test family
+used by 11_Linear_Regression_Bootstrap_SE.py, so the correlation is between
+the fields that actually enter the reconstruction rather than the raw slopes.
+
 Two time period modes are available via USE_LONGER_PERIOD:
   True  → CRU, CPC, PREC, TerraClimate × ERSSTv6         (1980-2023)
   False → Full observational ensemble × ERSSTv6 + COBE-SST3 (1980-2016)
@@ -29,7 +34,7 @@ from joblib import Parallel, delayed
 from scipy.stats import pearsonr
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # project root
 from paths import CMIG_DATA, DATA_DIR
-from regression_functions import detrend_dim, grid_area, regression_slope_se
+from regression_functions import detrend_dim, grid_area, fdr_correction, regression_slope_se
 
 warnings.filterwarnings("ignore")
 
@@ -70,6 +75,26 @@ print(f"Window step: {WINDOW_STEP} months")
 print(f"Time period: {TIME_PERIOD}")
 print(f"Precip datasets: {PRECIP_DATASETS_TO_USE}")
 print(f"SST datasets: {SST_DATASETS_TO_USE}")
+
+print(f"FDR alpha: {ALPHA}")
+
+# ============================================================================
+# FDR MASKING
+# ============================================================================
+
+def fdr_mask_sensitivity(slope_area, pval, alpha=ALPHA):
+    """
+    Zero out grid cells whose slope fails the BH-FDR test.
+
+    Cells are pooled into one family per basin, matching
+    11_Linear_Regression_Bootstrap_SE.py:374. Insignificant cells become 0.0
+    (they contribute nothing to the reconstruction, which is the quantity the
+    pattern correlation is about), while cells that were already NaN -- land,
+    missing data -- stay NaN so they are dropped from the correlation instead
+    of entering it as a block of identical zeros.
+    """
+    mask = fdr_correction(pval, alpha_FDR=alpha)
+    return slope_area.where(mask | slope_area.isnull(), 0.0)
 
 # ============================================================================
 # LOAD DATA
@@ -114,7 +139,7 @@ for sst_name, sst_anom in sst_dict.items():
         sst_detrended = detrend_dim(sst_common, 'time').astype(np.float32)
         
         # Regression
-        slope, _, _ = xr.apply_ufunc(
+        slope, _, pval = xr.apply_ufunc(
             regression_slope_se,
             sst_detrended,
             p_detrended,
@@ -123,12 +148,15 @@ for sst_name, sst_anom in sst_dict.items():
             output_core_dims=[[], [], []],
             output_dtypes=[np.float32, np.float32, np.float32]
         )
-        
+
         # Area weighting
         area = grid_area(slope).astype(np.float32)
         slope_area = area * slope
-        
-        all_full_period_sensitivities.append(slope_area)
+
+        # FDR correction, per member, before the ensemble mean
+        slope_sig = fdr_mask_sensitivity(slope_area, pval)
+
+        all_full_period_sensitivities.append(slope_sig)
 
 # Compute ensemble mean
 full_period_beta = xr.concat(all_full_period_sensitivities, dim='ensemble').mean(dim='ensemble')
@@ -190,7 +218,7 @@ def process_dataset_pair(sst_name, sst_anom, p_name, p_anom,
         sst_detrended = detrend_dim(sst_window, 'time').astype(np.float32)
         
         # Regression
-        slope, _, _ = xr.apply_ufunc(
+        slope, _, pval = xr.apply_ufunc(
             regression_slope_se,
             sst_detrended,
             p_detrended,
@@ -199,12 +227,15 @@ def process_dataset_pair(sst_name, sst_anom, p_name, p_anom,
             output_core_dims=[[], [], []],
             output_dtypes=[np.float32, np.float32, np.float32]
         )
-        
+
         # Area weighting
         area = grid_area(slope).astype(np.float32)
         slope_area = area * slope
-        
-        window_sensitivities_all.append(slope_area)
+
+        # FDR correction, applied window by window
+        slope_sig = fdr_mask_sensitivity(slope_area, pval)
+
+        window_sensitivities_all.append(slope_sig)
     
     # Stack windows along new dimension for this dataset pair
     windows_stacked = xr.concat(window_sensitivities_all, dim='window')
@@ -288,7 +319,7 @@ pattern_corr_per_member = result  # dims: (basin, window, ensemble) or just (win
 # ============================================================================
 
 # Create output filename with descriptive name
-output_filename = OUTPUTS_DIR / 'pattern_correlations_all_basins.nc'
+output_filename = OUTPUTS_DIR / 'pattern_correlations_all_basins_fdr_corrected.nc'
 
 
 # Assign dataset labels to ensemble dimension
@@ -306,12 +337,15 @@ results_ds = xr.Dataset(
     }
 )
 
-results_ds.attrs['description']        = 'Pattern correlation analysis results for all basins'
+results_ds.attrs['description']        = ('Pattern correlation analysis results for all basins, '
+                                          'computed on FDR-corrected sensitivities')
 results_ds.attrs['precip_datasets']    = ', '.join(PRECIP_DATASETS_TO_USE)
 results_ds.attrs['sst_datasets']       = ', '.join(SST_DATASETS_TO_USE)
 results_ds.attrs['time_period']        = TIME_PERIOD
 results_ds.attrs['window_size_years']  = WINDOW_SIZE
 results_ds.attrs['window_step_months'] = WINDOW_STEP
+results_ds.attrs['alpha_FDR']          = ALPHA
+results_ds.attrs['fdr_family']         = 'lat/lon grid cells, one family per basin'
 
 # Save to NetCDF
 results_ds.to_netcdf(output_filename)

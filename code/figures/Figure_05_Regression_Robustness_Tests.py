@@ -124,7 +124,7 @@ print(f"  Randomized : n={len(randomized_vals)}, mean={mean_randomized:.3f}")
 # pattern correlations
 # ===========================================================================
 print("Loading pattern correlation results...")
-output_filename = OUTPUTS_DIR / 'pattern_correlations_all_basins.nc'
+output_filename = OUTPUTS_DIR / 'pattern_correlations_all_basins_fdr_corrected.nc'
 results_ds = xr.open_dataset(output_filename)
 
 pattern_corr_per_member = results_ds['pattern_corr_per_member']   # (basin, ensemble, window)
@@ -243,7 +243,7 @@ print(f"Max plotted value: {global_max}")
 ax_B.set_ylabel('Pattern Correlation')
 ax_B.set_title('Stability of the SST Sensitivity Over Time')
 ax_B.set_xlabel('Last Year of 30-Year Window')
-ax_B.set_ylim([0.4, 1.0])
+#ax_B.set_ylim([0.4, 1.0])
 ax_B.set_xlim(rolling_years.min(), rolling_years.max())
 
 x_ticks = np.arange(int(rolling_years.min()), int(rolling_years.max()) + 1, step=3)
@@ -266,7 +266,8 @@ ax_B.text(-0.18, 1.07, 'b', transform=ax_B.transAxes,
 # Save
 # ---------------------------------------------------------------------------
 plt.tight_layout()
-save_path = FIGURES_DIR / "Figure_05_regression_robustness_tests.png"
+save_path = FIGURES_DIR / "Figure_05_regression_robustness_tests_FDR.png"
 plt.savefig(save_path, dpi=600, bbox_inches="tight", pad_inches=0.05)
 plt.show()
 print(f"Saved → {save_path}")
+

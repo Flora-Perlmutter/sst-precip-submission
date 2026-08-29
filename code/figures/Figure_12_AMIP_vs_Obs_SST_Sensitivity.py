@@ -44,7 +44,7 @@ from matplotlib.colors import BoundaryNorm
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # project root
-from paths import DATA_DIR, PAPER_FIGURE_DIR
+from paths import DATA_DIR, PAPER_FIGURE_DIR, bootstrap_file
 from plotting_functions import (
     apply_fixdates_to_results,
     compute_ensemble_means,basin_id_for_name,basin_name_for_id, grid_area
@@ -93,7 +93,7 @@ linear_results = {}
 print("Loading bootstrap results...")
 for p_name in PRECIP_DATASETS.keys():
     for sst_name in SST_DATASETS:
-        output_file = OUTPUTS_DIR /  f'global_linear_regression_bootstrap_{p_name}_{sst_name}.nc'
+        output_file = bootstrap_file(p_name, sst_name)
         
         if os.path.exists(output_file):
             try:
@@ -148,7 +148,7 @@ linear_results_amip = {}
 print("Loading AMIP bootstrap results...")
 
 for model_id in AMIP_MODELS:
-    output_file = OUTPUTS_DIR / f'global_linear_regression_bootstrap_amip_{model_id}_{model_id}.nc'
+    output_file = bootstrap_file(model_id, model_id, amip=True)
 
     if not os.path.exists(output_file):
         print(f"Not found: {output_file}")
@@ -429,3 +429,21 @@ plt.savefig(FIGURES_DIR / f"Figure_12_amip_vs_obs_SST_sensitivity.png",
     dpi=600, bbox_inches='tight'
 )
 plt.show()
+
+# ============================================================================
+# CORROBORATE MANUSCRIPT TEXT: % basins negative / % basins > 0.80
+# ============================================================================
+print("\n" + "=" * 70)
+print("AMIP vs Observed pattern correlation basin-level statistics")
+print("=" * 70)
+
+n_basins_total = len(metrics_df)
+n_negative     = int((metrics_df['correlation'] < 0).sum())
+n_above_080    = int((metrics_df['correlation'] > 0.80).sum())
+
+pct_negative  = 100 * n_negative / n_basins_total
+pct_above_080 = 100 * n_above_080 / n_basins_total
+
+print(f"Total basins with valid correlation : {n_basins_total}")
+print(f"Basins with negative correlation    : {n_negative} ({pct_negative:.1f}%)")
+print(f"Basins with correlation > 0.80       : {n_above_080} ({pct_above_080:.1f}%)")

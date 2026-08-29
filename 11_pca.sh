@@ -26,5 +26,5 @@ echo "Running on $(hostname)"
 echo "Task ID: $SLURM_ARRAY_TASK_ID"
 echo "CPUs per task: $SLURM_CPUS_PER_TASK"
 
-python3 /dartfs-hpc/rc/lab/C/CMIG/fperlmutter/git_repos/sst-precipitation-sensitivity/code/scripts/17_PCA_method.py --pair-index $SLURM_ARRAY_TASK_ID
+python3 /dartfs-hpc/rc/lab/C/CMIG/fperlmutter/git_repos/sst-precip-submission/code/scripts/17_PCA_method.py --pair-index $SLURM_ARRAY_TASK_ID
 

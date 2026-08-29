@@ -62,7 +62,7 @@ PROCESSED_DIR = DATA_DIR
 
 # Metrics to plot, one panel each (top to bottom). 'adjr2_mean' is also
 # available from the processing step if it is wanted here again.
-METRICS = ['rmse_mean', 'mae_mean', 'r2_mean']
+METRICS = ['rmse_mean', 'adjr2_mean']
 
 MODEL_DISPLAY_NAMES = {
       "P ~ intercept + β1*SST + β2*SST²":                        "P ~ intercept + β₁*SST + β₂*SST²",

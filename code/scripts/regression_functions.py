@@ -11,6 +11,7 @@ Usage
         detrend_dim,
         grid_area,
         fdr_correction,
+        fdr_correction_field,
         regression_slope,
         regression_slope_se,
         regression_with_lags,
@@ -35,10 +36,19 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import xarray as xr
-import geopandas as gpd
-import regionmask
 import statsmodels.api as sm
 from scipy.stats import f
+
+# geopandas and regionmask are imported inside waterbasin(), the only function
+# that uses them. At module level they are a hard requirement for every consumer
+# of this module, including the regression, trend and FDR helpers that never
+# touch a shapefile — sensitivity_common imports detrend_dim, grid_area and
+# fdr_correction from here, so scripts 11 and 16 and Figure 10 would all need
+# geopandas installed to run.
+#
+# It also matters across environments: xesmf_env carries a regionmask too old
+# for its NumPy 2.x (regionmask still references np.NaN, removed in 2.0), so a
+# module-level import breaks anything needing xesmf but not basin masking.
 
 # Shared utility — import from sibling module, do not redefine here
 from data_processing_functions import convert_to_mm_month
@@ -68,6 +78,9 @@ def waterbasin(data: xr.DataArray) -> xr.DataArray:
     xr.DataArray
         Basin-mean time series with a 'basin' dimension.
     """
+    import geopandas as gpd
+    import regionmask
+
     # Normalize longitude to -180/180
     data = data.assign_coords(lon=((data.lon + 180) % 360 - 180)).sortby("lon")
 
@@ -146,38 +159,75 @@ def grid_area(xarray: xr.DataArray) -> xr.DataArray:
 # ---------------------------------------------------------------------------
 
 def fdr_correction_single(p_values_1d: np.ndarray, alpha_FDR: float = 0.05) -> np.ndarray:
-    """Apply Benjamini-Hochberg FDR correction to a 1D array, ignoring NaNs."""
+    """
+    Apply Benjamini-Hochberg FDR correction to a 1D array, ignoring NaNs.
+
+    Implements the BH *step-up* procedure: find the largest k for which
+    p_(k) <= k*alpha/N, then reject every hypothesis up to and including k.
+    The rejection set is therefore always a prefix of the sorted p-values.
+    """
     valid_mask    = ~np.isnan(p_values_1d)
     valid_p       = p_values_1d[valid_mask]
 
+    result = np.full(len(p_values_1d), False, dtype=bool)
     if len(valid_p) == 0:
-        return np.full_like(p_values_1d, False, dtype=bool)
+        return result
 
     sorted_idx    = np.argsort(valid_p)
     sorted_p      = valid_p[sorted_idx]
     N             = len(sorted_p)
     threshold     = np.arange(1, N + 1) * alpha_FDR / N
 
-    sig_sorted    = sorted_p <= threshold
-    sig_unsorted  = np.empty_like(sig_sorted)
+    # Step-up: largest passing rank, then reject everything at or below it.
+    passing    = np.nonzero(sorted_p <= threshold)[0]
+    sig_sorted = np.zeros(N, dtype=bool)
+    if passing.size:
+        sig_sorted[: passing[-1] + 1] = True
+
+    sig_unsorted = np.empty(N, dtype=bool)
     sig_unsorted[sorted_idx] = sig_sorted
 
-    result             = np.full(len(p_values_1d), False, dtype=bool)
     result[valid_mask] = sig_unsorted
     return result
+
+
+def fdr_correction_field(p_values_nd: np.ndarray, alpha_FDR: float = 0.05) -> np.ndarray:
+    """Apply BH to an entire N-D block of p-values treated as a single family."""
+    p_values_nd = np.asarray(p_values_nd)
+    flat        = fdr_correction_single(p_values_nd.ravel(), alpha_FDR)
+    return flat.reshape(p_values_nd.shape)
 
 
 def fdr_correction(
     p_values: xr.DataArray,
     alpha_FDR: float = 0.05,
-    basin_dim: str = "basin",
+    core_dims: tuple = ("lat", "lon"),
 ) -> xr.DataArray:
-    """Apply BH FDR correction separately for each basin."""
+    """
+    Apply BH FDR correction with the test family defined by `core_dims`.
+
+    The dimensions listed in `core_dims` are pooled into one family of
+    simultaneous tests; every other dimension is looped over independently.
+
+    The default ("lat", "lon") treats all SST grid cells for a given basin as
+    one family. That is the family the reconstruction subsequently sums over
+    (11_Linear_Regression_Bootstrap_SE.py:384), so this is the correction that
+    actually controls the false discovery rate of the reconstruction.
+
+    Pass core_dims=("basin",) to reproduce the pre-2026-08 behaviour, in which
+    the family was basins and each grid cell was corrected independently.
+    """
+    dims = [d for d in core_dims if d in p_values.dims]
+    if not dims:
+        raise ValueError(
+            f"None of core_dims={core_dims} found in p_values.dims={p_values.dims}"
+        )
+
     return xr.apply_ufunc(
-        fdr_correction_single,
+        fdr_correction_field,
         p_values,
-        input_core_dims=[[basin_dim]],
-        output_core_dims=[[basin_dim]],
+        input_core_dims=[dims],
+        output_core_dims=[dims],
         vectorize=True,
         dask="parallelized",
         output_dtypes=[bool],

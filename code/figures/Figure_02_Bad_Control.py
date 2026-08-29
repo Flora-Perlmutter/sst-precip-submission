@@ -32,7 +32,7 @@ import matplotlib.pyplot as plt
 import warnings
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # project root
-from paths import DATA_DIR, PAPER_FIGURE_DIR
+from paths import DATA_DIR, PAPER_FIGURE_DIR, bootstrap_file
 
 warnings.filterwarnings("ignore")
 
@@ -100,9 +100,7 @@ def load_linear_results():
     
     for p_name in PRECIP_DATASETS:
         for sst_name in SST_DATASETS:
-            output_file = INPUTS_DIR / (
-        f'global_linear_regression_bootstrap_{p_name}_{sst_name}.nc'
-    )
+            output_file = bootstrap_file(p_name, sst_name)
             
             if os.path.exists(output_file):
                 try:

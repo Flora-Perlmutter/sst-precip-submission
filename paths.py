@@ -25,3 +25,16 @@ CMIG_DATA = Path(os.environ.get("CMIG_DATA", "/dartfs-hpc/rc/lab/C/CMIG"))
 # ---------------------------------------------------------------------------
 for _dir in [DATA_DIR, FIGURE_DIR, PAPER_FIGURE_DIR]:
     _dir.mkdir(parents=True, exist_ok=True)
+
+# ---------------------------------------------------------------------------
+# Output naming
+# ---------------------------------------------------------------------------
+def bootstrap_file(p_name: str, sst_name: str, amip: bool = False) -> Path:
+    """
+    Path to one member's bootstrap output from script 11, or script 16 for AMIP.
+
+    Nine figure scripts build this filename inline. Routing them through here is
+    what keeps the naming in one place instead of nine that can drift apart.
+    """
+    stem = "global_linear_regression_bootstrap_amip" if amip else "global_linear_regression_bootstrap"
+    return DATA_DIR / f"{stem}_{p_name}_{sst_name}.nc"

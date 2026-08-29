@@ -40,7 +40,7 @@ from matplotlib.colors import BoundaryNorm
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # project root
-from paths import DATA_DIR, PAPER_FIGURE_DIR
+from paths import DATA_DIR, PAPER_FIGURE_DIR, bootstrap_file
 from plotting_functions import compute_ensemble_means, basin_id_for_name, basin_name_for_id
 
 warnings.filterwarnings("ignore")
@@ -90,7 +90,7 @@ linear_results = {}
 print("Loading bootstrap results...")
 for p_name in PRECIP_DATASETS.keys():
     for sst_name in SST_DATASETS:
-        output_file = OUTPUTS_DIR / f'global_linear_regression_bootstrap_{p_name}_{sst_name}.nc'
+        output_file = bootstrap_file(p_name, sst_name)
         
         if os.path.exists(output_file):
             try:
@@ -132,8 +132,14 @@ ensemble_obs = compute_ensemble_means(linear_results, "Observations")
 # -------------------------------
 basin_ids = grdc_basins['MRBID'].values
 
-# Mean correlations
+# Mean correlation, kept for the SIGN test below — squaring destroys it.
 corr_mean = ensemble_obs['correlation_sst'].reindex(basin=basin_ids)
+
+# Shared variance plotted in panels a/b: the mean of the per-member r^2, i.e.
+# the average variance an individual (precip x SST) combination explains.
+# Squaring the ensemble-mean correlation instead would understate this by the
+# spread across members, since mean(r^2) = mean(r)^2 + var(r).
+r2_mean = ensemble_obs['correlation_sst_r2'].reindex(basin=basin_ids)
 
 # Process MS data (for top panels)
 ms_sq = ensemble_obs['marginal_sensitivity_sst'].reindex(basin=basin_ids) ** 2
@@ -156,7 +162,11 @@ n_ocean_cells = np.isfinite(sst_dict['ERSSTv6'].mean('time')).sum(dim=('lat', 'l
 basin_importance_fraction = important_mask.sum(dim=('lat', 'lon')) / n_ocean_cells
 
 # Merge correlation data with GRDC basins
-metrics_df = gpd.GeoDataFrame({'correlation': corr_mean.values}, index=grdc_basins['MRBID'].values)
+metrics_df = gpd.GeoDataFrame(
+    {'correlation': corr_mean.values,   # signed, for the hatching test only
+     'r2':          r2_mean.values},    # mean of per-member r^2, what a/b plot
+    index=grdc_basins['MRBID'].values,
+)
 fraction_df = gpd.GeoDataFrame({'fraction_important': basin_importance_fraction.values},
                                index=grdc_basins['MRBID'].values)
 
@@ -225,12 +235,24 @@ corr_vmin, corr_vmax = 0, 30
 corr_cmap = plt.get_cmap('Blues', 20)
 corr_norm = BoundaryNorm(np.linspace(corr_vmin, corr_vmax, 21), corr_cmap.N)
 
+# These panels now plot mean(r^2), which exceeds the previous mean(r)^2 by the
+# variance of r across members, so values sit higher than the 0-30% range was
+# chosen for. Both the map (BoundaryNorm) and the histogram (fixed bins) clip
+# silently, so check rather than lose basins off the top of the scale.
+_r2_max_pct = float(np.nanmax(r2_mean.values)) * 100
+print(f"\nPanels a/b — max mean(r^2) across basins: {_r2_max_pct:.1f}%")
+if _r2_max_pct > corr_vmax:
+    n_over = int((r2_mean.values * 100 > corr_vmax).sum())
+    print(f"  [WARN] {n_over} basin(s) exceed the {corr_vmax}% ceiling and will")
+    print(f"         clip. Widen corr_vmax, hist_bins, the colorbar ticks and")
+    print(f"         ax_hist.set_xlim to at least {int(np.ceil(_r2_max_pct / 6) * 6)}%.")
+
 # Plot background ocean
 ax_map.add_feature(cfeature.OCEAN, facecolor="lightgray", alpha=0.3)
 
 # Significant basins
 sig_gdf = gdf_corr.copy()
-sig_gdf['corr_plot'] = (corr_mean.values**2)*100
+sig_gdf['corr_plot'] = r2_mean.values * 100
 sig_gdf = sig_gdf[sig_gdf['corr_plot'] > 0]
 
 for idx, row in sig_gdf.iterrows():
@@ -265,7 +287,7 @@ cbar_map.ax.minorticks_off()
 # ---------------------------------------
 ax_hist = plt.subplot(gs[0, 1])
 
-corr_values = (gdf_corr["correlation"].dropna().values**2)*100
+corr_values = gdf_corr["r2"].dropna().values * 100
 # Match bins to colorbar ticks: [0, 6, 12, 18, 24, 30]
 hist_bins = np.linspace(0, 30, 21)  # Creates bins that align with 15% intervals
 n, bins, patches = ax_hist.hist(corr_values, bins=hist_bins, color="lightblue", linewidth=.5, 
@@ -291,7 +313,11 @@ for basin_name in highlight_basins:
     row = gdf_corr.loc[gdf_corr['MRBID'] == basin_id]
     if row.empty:
         continue
-    val = (row['correlation'].values[0]**2)*100
+    val = row['r2'].values[0] * 100
+    if not np.isfinite(val):
+        print(f"  [skip] {basin_name}: no finite r^2 "
+              f"(no significant cells in any member)")
+        continue
     bin_idx = np.clip(np.digitize(val, bins) - 1, 0, len(bins)-2)
     bin_center = 0.5 * (bins[bin_idx] + bins[bin_idx+1])
     bin_height = n[bin_idx]
@@ -303,18 +329,23 @@ for basin_name in highlight_basins:
     # Special positioning for Connecticut
     if basin_name.upper() == "ZARUMILLA":
         text_x = bin_center + 0.04 
+        text_y = bin_height + 15 
+        ha_text = "left"
+    elif basin_name.upper() == "MISSISSIPPI":
+        text_x = bin_center
+        text_y = bin_height + 20 
         ha_text = "left"
     elif basin_name.upper() == "AMAZON":
         text_x = bin_center 
-        text_y = bin_height + 4 
+        text_y = bin_height + 7 
         ha_text = "left"
     elif basin_name.upper() == "MURRAY":
-        text_y = bin_height + 12  
+        text_y = bin_height + 10  
     elif basin_name.upper() == "YELLOW RIVER":
         text_y = bin_height + 18
         ha_text = "left"
     elif basin_name.upper() == "CONNECTICUT":
-        text_y = bin_height + 14  
+        text_y = bin_height + 6  
         ha_text = "right"
     else:
         text_x = bin_center + 0.0015
@@ -340,7 +371,7 @@ for basin_name in highlight_basins:
             bbox=dict(facecolor='white', alpha=0.75, edgecolor='none', boxstyle="round,pad=0.2")
         )
 #ax_hist.set_title('Distribution of SST-Forced Precipitation Variabilities')
-ax_hist.set_ylim(0, 120)
+ax_hist.set_ylim(0, 150)
 ax_hist.set_xlim(0, 30)
 
 
@@ -380,7 +411,7 @@ ax_map_2.set_aspect('auto')
 # Add colorbar
 sm_ratio = plt.cm.ScalarMappable(norm=ratio_norm, cmap=ratio_cmap)
 sm_ratio.set_array([])
-cbar_map_2 = fig.colorbar(sm_ratio, ax=ax_map_2, ticks=np.linspace(0, 60, 5), 
+cbar_map_2 = fig.colorbar(sm_ratio, ax=ax_map_2, ticks=np.linspace(ratio_vmin, ratio_vmax, 5), 
                         orientation='horizontal', shrink=0.8, pad=0.05)
 ax_map_2.set_title("Average SST-Forced Precipitation Magnitude")
 cbar_map_2.set_label("%")
@@ -393,10 +424,10 @@ cbar_map_2.ax.minorticks_off()
 ax_hist_2 = plt.subplot(gs[1, 1])
 
 ratio_values_clean = gdf_std_ratio["std_ratio"].dropna().values
-ratio_values_filtered = ratio_values_clean[(ratio_values_clean >= 0) & (ratio_values_clean <= 200)]
+ratio_values_filtered = ratio_values_clean[(ratio_values_clean >= 0) & (ratio_values_clean <= ratio_vmax)]
 
 # Match bins to colorbar ticks: [0, 15, 30, 45, 60]
-hist_bins_2 = np.linspace(0, 60, 21)  # Creates bins that align with 15% intervals
+hist_bins_2 = np.linspace(ratio_vmin, ratio_vmax, 21)
 n, bins, patches = ax_hist_2.hist(
     ratio_values_filtered, bins=hist_bins_2, color="lightblue", edgecolor="black", linewidth=.5, alpha=0.7
 )
@@ -469,7 +500,7 @@ for basin_name in highlight_basins_2:
     )
     
 ax_hist_2.set_ylim(0, 300)
-ax_hist_2.set_xlim(0, 60)
+ax_hist_2.set_xlim(ratio_vmin, ratio_vmax)
     
 # Add panel labels
 ax_map.text(-0.15, 1.16, 'a', transform=ax_map.transAxes, 
@@ -488,13 +519,19 @@ plt.savefig(FIGURES_DIR / "Figure_07_sst_importance_by_basin.png",
 # ============================================================================
 # NUMBERS FOR THE MANUSCRIPT PARAGRAPH
 # ============================================================================
-# Panels a/b plot correlation**2 as a percentage (r-squared, the shared
-# variance). Panels c/d plot std(reconstruction)/std(observed) as a
-# percentage. These are different quantities: the std ratio is a ratio of
-# magnitudes and must NOT be squared.
+# Panels a/b plot the mean of the per-member r^2 as a percentage: the average
+# shared variance a single (precip x SST) combination achieves. Panels c/d plot
+# std(reconstruction)/std(observed) as a percentage. These are different
+# quantities: the std ratio is a ratio of magnitudes and must NOT be squared.
+#
+# r_vals below is the ensemble-MEAN correlation, kept because it carries the
+# sign that r^2 discards. Do not square it to recover r2_pct - mean(r^2) exceeds
+# mean(r)^2 by the variance of r across members, and the two answer different
+# questions: mean(r^2) is what a typical member explains, mean(r)^2 is what the
+# consensus correlation would explain.
 
 r_vals     = gdf_corr["correlation"].dropna().values.astype(float)
-r2_pct     = (r_vals ** 2) * 100
+r2_pct     = gdf_corr["r2"].dropna().values.astype(float) * 100
 ratio_vals = gdf_std_ratio["std_ratio"].dropna().values.astype(float)
 
 print("\n" + "=" * 78)
@@ -554,22 +591,13 @@ for basin_name in highlight_basins:
         continue
     bid = float(bid)
     canonical = basin_name_for_id(bid)
-    r_row = gdf_corr.loc[gdf_corr['MRBID'] == bid, 'correlation']
-    s_row = gdf_std_ratio.loc[gdf_std_ratio['MRBID'] == bid, 'std_ratio']
-    r_b = float(r_row.values[0]) if len(r_row) else np.nan
-    s_b = float(s_row.values[0]) if len(s_row) else np.nan
-    print(f"{canonical:<24}{r_b:>8.3f}{(r_b ** 2) * 100:>10.1f}{s_b:>15.1f}")
-
-# ---------------------------------------------------------------------------
-# Direct comparison against the numbers currently in the paragraph
-# ---------------------------------------------------------------------------
-print("\n--- Paragraph numbers, r vs r^2 ---")
-print("If a quoted figure was a correlation, its r^2 equivalent is:")
-for quoted in [0.11, 0.20, 0.30, 0.41, 0.50]:
-    print(f"  r = {quoted:.2f}  ->  r^2 = {quoted ** 2 * 100:.1f}%")
-print("The 42% Amazon magnitude is a std ratio, not a correlation -- leave it")
-print("as it is; squaring it would be a category error.")
-print("=" * 78 + "\n")
+    r_row  = gdf_corr.loc[gdf_corr['MRBID'] == bid, 'correlation']
+    r2_row = gdf_corr.loc[gdf_corr['MRBID'] == bid, 'r2']
+    s_row  = gdf_std_ratio.loc[gdf_std_ratio['MRBID'] == bid, 'std_ratio']
+    r_b  = float(r_row.values[0])  if len(r_row)  else np.nan
+    r2_b = float(r2_row.values[0]) if len(r2_row) else np.nan
+    s_b  = float(s_row.values[0])  if len(s_row)  else np.nan
+    print(f"{canonical:<24}{r_b:>8.3f}{r2_b * 100:>10.1f}{s_b:>15.1f}")
 
 plt.show()
 

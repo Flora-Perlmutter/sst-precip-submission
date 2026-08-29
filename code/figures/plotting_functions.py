@@ -151,8 +151,16 @@ def compute_ensemble_means(results_dict: dict, label: str = "") -> dict:
         sst_reconstruction_std, observed_precip, observed_precip_std,
         correlation_sst, correlation_sst_std
     """
-    keys = ["marginal_sensitivity", "marginal_sensitivity_se",
-            "reconstruction", "observed_precip", "correlation"]
+    # Keys absent from every member are skipped rather than raising, so a figure
+    # that does not plot the sensitivity maps can leave them out of its loader.
+    # They are (lat, lon, basin) -- 8.3 million values per member, ~33 MB each --
+    # and stacking 16 of them for a mean the figure never reads costs about a
+    # gigabyte of I/O and several 500 MB intermediates. Figures 10 and 10b do
+    # exactly that.
+    candidate_keys = ["marginal_sensitivity", "marginal_sensitivity_se",
+                      "reconstruction", "observed_precip", "correlation"]
+    first = next(iter(results_dict.values()))
+    keys  = [k for k in candidate_keys if k in first]
     lists = {k: [] for k in keys}
 
     for result in results_dict.values():
@@ -162,19 +170,34 @@ def compute_ensemble_means(results_dict: dict, label: str = "") -> dict:
     def _stack_mean(k): return xr.concat(lists[k], dim="ensemble").mean(dim="ensemble")
     def _stack_std(k):  return xr.concat(lists[k], dim="ensemble").std(dim="ensemble")
 
+    def _stack_mean_sq(k):
+        """Mean of the squared per-member values, not the square of the mean."""
+        return (xr.concat(lists[k], dim="ensemble") ** 2).mean(dim="ensemble")
+
     ensemble_mean = {
-        "marginal_sensitivity_sst":     _stack_mean("marginal_sensitivity"),
-        "marginal_sensitivity_sst_se":  _stack_mean("marginal_sensitivity_se"),
-        "marginal_sensitivity_sst_std": _stack_std("marginal_sensitivity"),
         "sst_reconstruction":           _stack_mean("reconstruction"),
         "sst_reconstruction_std":       _stack_std("reconstruction"),
         "observed_precip":              _stack_mean("observed_precip"),
         "observed_precip_std":          _stack_std("observed_precip"),
         "correlation_sst":              _stack_mean("correlation"),
         "correlation_sst_std":          _stack_std("correlation"),
+        # Mean of the per-member r^2, i.e. the average shared variance an
+        # individual (precip x SST) combination achieves. This is NOT the same
+        # as squaring correlation_sst: by Jensen's inequality
+        #     mean(r^2) = mean(r)^2 + var(r)
+        # so squaring the ensemble mean understates it by the spread across
+        # members. Keep correlation_sst for anything needing the SIGN, which
+        # squaring destroys.
+        "correlation_sst_r2":           _stack_mean_sq("correlation"),
     }
 
-    print(f"Computed ensemble means for {label}")
+    if "marginal_sensitivity" in keys:
+        ensemble_mean["marginal_sensitivity_sst"]     = _stack_mean("marginal_sensitivity")
+        ensemble_mean["marginal_sensitivity_sst_std"] = _stack_std("marginal_sensitivity")
+    if "marginal_sensitivity_se" in keys:
+        ensemble_mean["marginal_sensitivity_sst_se"]  = _stack_mean("marginal_sensitivity_se")
+
+    print(f"Computed ensemble means for {label} ({len(keys)} fields)")
     return ensemble_mean
 
 
@@ -225,7 +248,12 @@ def linear_trend(da: xr.DataArray) -> xr.DataArray:
     Assumes time is in fractional years (use convert_time_to_years first).
     """
     coeff = da.polyfit(dim="time", deg=1, skipna=True)
-    return coeff.polyfit_coefficients.sel(degree=1) * 10.0
+    trend = coeff.polyfit_coefficients.sel(degree=1) * 10.0
+    # .sel leaves a scalar `degree` coordinate attached. Nothing selects on it,
+    # but it survives into saved NetCDF and then into every to_dataframe() as a
+    # spurious column, which collides the third time a GeoDataFrame is merged
+    # (pandas has already used degree_x and degree_y by then).
+    return trend.drop_vars("degree", errors="ignore")
 
 
 # ---------------------------------------------------------------------------

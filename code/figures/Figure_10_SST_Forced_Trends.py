@@ -5,29 +5,52 @@ Figure 10: SST-forced precipitation trends (observed vs AMIP).
 
 Author: Flora Perlmutter
 
-Significance criterion (two-gate, applied per basin)
------------------------------------------------------
-A basin is marked significant (unhatched) only when it passes BOTH gates:
+The reconstruction is plotted at the amplitude the method actually produces.
+Significance compares each trend against the regression's own sampling error,
+taken from the bootstrap distribution the pipeline saves per replicate, so the
+magnitude and the uncertainty come from the same fit.
 
-  Gate 1 — t-test across member trends:
-      t = ensemble_mean_trend / (std(member_trends) / sqrt(N_INDEPENDENT))
-      Compared to a two-tailed t-distribution at df = N_INDEPENDENT - 1.
-      N_INDEPENDENT is set conservatively:
-        • Obs  : N_INDEPENDENT_OBS  = 16  (number of independent precip
-                 datasets; the 16 members are 8 precip × 2 SST combinations)
-        • AMIP : N_INDEPENDENT_AMIP = 6  (all 6 models treated as independent)
-      Answers: "Is the ensemble mean trend distinguishable from zero given
-      how much members disagree?"
+Significance and agreement (two axes, not one verdict)
+------------------------------------------------------
+Reported as three categories, following IPCC AR5/AR6 map convention:
 
-  Gate 2 — sign agreement:
-      Fraction of members whose trend sign matches the ensemble mean sign.
-      • Obs  : threshold SIGN_THRESHOLD_OBS  = 0.75  (≥ 12/16 independent)
-      • AMIP : threshold SIGN_THRESHOLD_AMIP = 0.75  (≥ 5/6 models)
-      Answers: "Do the majority of members agree on the direction of the
-      trend, guarding against a single outlier member dominating the mean?"
+  significant, robust agreement  no hatching
+  significant, low agreement     backslash hatching
+  not significant                slash hatching
 
-  A basin is hatched when it fails either gate.
+SIGNIFICANCE compares the ensemble-mean trend to the standard deviation of the
+bootstrap distribution of that mean:
 
+    significant if  |theta_hat| > CI_Z * SD(theta_bar_b)
+
+where theta_bar_b averages the member trends WITHIN bootstrap replicate b, and
+the SD is taken over b. This is the same construction the paper already uses for
+the sensitivity and reconstruction standard errors -- the SD of a bootstrap
+distribution -- applied to a third quantity, so it needs neither a percentile
+interval nor a bias correction.
+
+Averaging within the replicate is what retains the sampling error the members
+share. Drawing replicates independently per member averages that component away
+and understates the spread by roughly a factor of two.
+
+AGREEMENT is the fraction of members whose trend sign matches the ensemble mean,
+reported on its own axis rather than ANDed into the significance verdict. Three
+tests ANDed at nominal 5% each have no stated error rate and the result could
+not be described as a 5% procedure.
+
+Why the bootstrap is needed: inter-member spread measures disagreement between
+dataset choices, and all 16 members see the same 36-year record. Whatever that
+realization got wrong they all get wrong together, so it cancels out of their
+spread entirely. On this ensemble the within-member SD is 0.431 against 0.159
+between members, so the superseded two-gate scheme used a standard error about
+six times too small and called 267 of 518 basins significant.
+
+Observed precipitation has no bootstrap, so those panels keep the inter-member
+t-test and are marked with slashes only.
+
+Limitations to state: no correction is made for testing ~518 basins, so roughly
+26 false positives are expected at nominal 5%; and replicate b means a different
+resampling for most member pairs, which makes the interval mildly lenient.
   Note on the signal-to-noise paradox: AMIP models forced with observed SSTs
   are known to exhibit higher inter-model spread than observed, meaning the
   t-test is conservative for AMIP. Hatched AMIP basins may still have a
@@ -56,7 +79,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from paths import DATA_DIR, PAPER_FIGURE_DIR
+from paths import DATA_DIR, PAPER_FIGURE_DIR, bootstrap_file
 from plotting_functions import (
     apply_fixdates_to_results,
     apply_fixdates_to_sst,
@@ -66,13 +89,23 @@ from plotting_functions import (
     linear_trend,
 )
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+from sensitivity_common import (
+    AGREEMENT_THRESHOLD,
+    CI_Z,
+    ensemble_trend_significance,
+    sign_agreement,
+    three_categories,
+    TREND_PERIODS,
+)
+
 warnings.filterwarnings("ignore")
 
 # ---------------------------------------------------------------------------
 # Tuneable parameters
 # ---------------------------------------------------------------------------
 # Gate 1: t-test across member trends
-# Conservative df: obs has 8 independent precip datasets (16 members = 8x2
+# Conservative df: obs has 16 independent precip datasets (16 members = 8x2
 # combos; the two SST datasets are highly correlated so don't double the dof)
 N_INDEPENDENT_OBS  = 16
 N_INDEPENDENT_AMIP = 6   # all 6 AMIP models treated as independent
@@ -82,7 +115,9 @@ ALPHA              = 0.05  # two-tailed significance level
 SIGN_THRESHOLD_OBS  = 0.75  # ≥ 12/16 independent obs members
 SIGN_THRESHOLD_AMIP = 0.75  # ≥ 5/6 AMIP models
 
-N_BOOT = 5000  # bootstrap iterations for the ensemble-size test
+# Reported trend window. Was hard-coded in five places in this file.
+TREND_PERIOD       = TREND_PERIODS[0]
+TREND_PERIOD_LABEL = f"{TREND_PERIOD[0][:4]}-{TREND_PERIOD[1][:4]}"
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -117,7 +152,7 @@ linear_results = {}
 print("Loading bootstrap results...")
 for p_name in PRECIP_DATASETS.keys():
     for sst_name in SST_DATASETS:
-        output_file = OUTPUTS_DIR / f'global_linear_regression_bootstrap_{p_name}_{sst_name}.nc'
+        output_file = bootstrap_file(p_name, sst_name)
         if os.path.exists(output_file):
             try:
                 result_ds = xr.open_dataset(output_file)
@@ -131,8 +166,8 @@ for p_name in PRECIP_DATASETS.keys():
                     'reconstruction_se':     result_ds['reconstruction_se'],
                     'observed_precip':       result_ds['observed_precip'],
                     'correlation':           result_ds['correlation'],
-                    'marginal_sensitivity_se': result_ds['marginal_sensitivity_se'],
-                    'marginal_sensitivity':  result_ds['marginal_sensitivity'],
+                    'trend_boot':            result_ds['trend_boot'],
+                    'reconstruction_trend':  result_ds['reconstruction_trend'],
                 }
                 linear_results[(p_name, sst_name)] = result
                 print(f"  Loaded: {p_name} vs {sst_name}")
@@ -158,7 +193,7 @@ linear_results_amip = {}
 
 print("Loading AMIP bootstrap results...")
 for model_id in AMIP_MODELS:
-    output_file = OUTPUTS_DIR / f'global_linear_regression_bootstrap_amip_{model_id}_{model_id}.nc'
+    output_file = bootstrap_file(model_id, model_id, amip=True)
     if not os.path.exists(output_file):
         print(f"  Not found: {output_file}")
         continue
@@ -174,8 +209,8 @@ for model_id in AMIP_MODELS:
             'reconstruction_se':     ds['reconstruction_se'],
             'observed_precip':       ds['observed_precip'],
             'correlation':           ds['correlation'],
-            'marginal_sensitivity_se': ds['marginal_sensitivity_se'],
-            'marginal_sensitivity':  ds['marginal_sensitivity'],
+            'trend_boot':            ds['trend_boot'],
+            'reconstruction_trend':  ds['reconstruction_trend'],
         }
         linear_results_amip[(model_id, model_id)] = result
         print(f"  Loaded AMIP: {model_id}")
@@ -189,6 +224,7 @@ ensemble_obs  = compute_ensemble_means(linear_results,       "Observations")
 amip_results_fixed = apply_fixdates_to_results(linear_results_amip)
 ensemble_amip = compute_ensemble_means(amip_results_fixed,   "AMIP")
 
+
 amip_sst_dict  = apply_fixdates_to_sst(amip_sst_dict)
 for name, da in amip_sst_dict.items():
     if 'height' in da.coords:
@@ -199,29 +235,29 @@ sst_ensemble   = compute_ensemble_mean_sst(sst_dict)
 # ============================================================================
 # TRENDS FROM ENSEMBLE MEANS
 # ============================================================================
-def _constrained_trend(ensemble, sst_mean, key, time_slice=('1979-01-01', '2014-12-31')):
+def _constrained_trend(ensemble, sst_mean, key, time_slice=TREND_PERIOD):
     da = ensemble[key].sel(time=slice(*time_slice))
     return linear_trend(convert_time_to_years(da))
 
-sst_constrained_amip = amip_sst_mean.sel(
-    time=slice('1979-01-01T00:00:00.000000000', '2014-12-31T00:00:00.000000000'))
+sst_constrained_amip = amip_sst_mean.sel(time=slice(*TREND_PERIOD))
 sst_trend_amip = linear_trend(convert_time_to_years(sst_constrained_amip))
 
-sst_constrained_obs = sst_ensemble.sel(
-    time=slice('1979-01-01T00:00:00.000000000', '2014-12-31T00:00:00.000000000'))
+sst_constrained_obs = sst_ensemble.sel(time=slice(*TREND_PERIOD))
 sst_trend_obs = linear_trend(convert_time_to_years(sst_constrained_obs))
 
+# The reconstruction is plotted at the amplitude the method actually produces.
 precip_sst_trend_amip = _constrained_trend(ensemble_amip, amip_sst_mean, 'sst_reconstruction')
-precip_obs_trend_amip = _constrained_trend(ensemble_amip, amip_sst_mean, 'observed_precip')
+precip_obs_trend_amip = _constrained_trend(ensemble_amip,     amip_sst_mean, 'observed_precip')
 precip_sst_trend_obs  = _constrained_trend(ensemble_obs,  sst_ensemble,  'sst_reconstruction')
-precip_obs_trend_obs  = _constrained_trend(ensemble_obs,  sst_ensemble,  'observed_precip')
+precip_obs_trend_obs  = _constrained_trend(ensemble_obs,      sst_ensemble,  'observed_precip')
+
 
 
 # ============================================================================
 # TWO-GATE SIGNIFICANCE
 # ============================================================================
 def compute_member_trends(results_dict, data_key='reconstruction',
-                          time_slice=('1979-01-01', '2014-12-31'),
+                          time_slice=TREND_PERIOD,
                           member_keys=None):
     """
     Return a (n_members × n_basins) array of linear trends and the common
@@ -273,8 +309,8 @@ def compute_member_trends(results_dict, data_key='reconstruction',
 
 
 def calculate_two_gate_significance(results_dict, data_key='reconstruction',
-                                    time_slice=('1979-01-01', '2014-12-31'),
-                                    n_independent=8,
+                                    time_slice=TREND_PERIOD,
+                                    n_independent=16,
                                     sign_threshold=0.75,
                                     alpha=ALPHA,
                                     member_keys=None):
@@ -350,86 +386,134 @@ def calculate_two_gate_significance(results_dict, data_key='reconstruction',
         xr.DataArray(gate2_pass,  coords=coords, dims=['basin'], name='gate2_sign'),
     )
 
+def report_significance(label, point, sd, agree, gate1=None, gate2=None,
+                        threshold=AGREEMENT_THRESHOLD):
+    """Detailed per-criterion counts, so the cost of each test is visible."""
+    sig    = np.abs(point) > CI_Z * sd
+    robust = agree >= threshold
+    n      = int(np.isfinite(point).sum())
 
-print("\nCalculating two-gate significance (t-test + sign agreement)...")
-print(f"  Obs  — df={N_INDEPENDENT_OBS-1}, sign threshold={SIGN_THRESHOLD_OBS:.0%}")
-print(f"  AMIP — df={N_INDEPENDENT_AMIP-1}, sign threshold={SIGN_THRESHOLD_AMIP:.0%}")
+    print(f"\n  {label}  ({n} basins)")
+    print(f"    median trend                : {float(abs(point).median()):.4f}")
+    print(f"    median SD of ensemble mean  : {float(sd.median()):.4f}")
+    print(f"    significant (|t| > {CI_Z})     : {int(sig.sum()):4d}"
+          f"  ({100*float(sig.mean()):5.1f}%)")
+    print(f"    sign agreement >= {threshold:.0%}      : {int(robust.sum()):4d}"
+          f"  ({100*float(robust.mean()):5.1f}%)")
+    # Categories come from the shared helper so the figures and the notebook
+    # cannot drift on what "robust" means.
+    cat = three_categories(sig, agree, threshold)
+    print(f"    -> significant AND robust   : {int((cat == 2).sum()):4d}")
+    print(f"    -> significant, low agree   : {int((cat == 1).sum()):4d}")
+    print(f"    -> not significant          : {int((cat == 0).sum()):4d}")
 
-hatch_sst_obs,  g1_sst_obs,  g2_sst_obs  = calculate_two_gate_significance(
+    if gate1 is not None and gate2 is not None:
+        old = gate1 & gate2
+        common = np.intersect1d(sig['basin'].values, old['basin'].values)
+        s, o = sig.sel(basin=common), old.sel(basin=common)
+        print(f"    superseded two-gate scheme  : {int(o.sum()):4d}")
+        print(f"      kept by both              : {int((s & o).sum()):4d}")
+        print(f"      lost when adding the SD   : {int((~s & o).sum()):4d}")
+        print(f"      gained                    : {int((s & ~o).sum()):4d}")
+    return sig, robust
+
+
+print("\nSignificance: ensemble-mean trend vs the SD of its bootstrap distribution")
+print(f"  z = {CI_Z}, agreement threshold = {AGREEMENT_THRESHOLD:.0%}, "
+      f"period {TREND_PERIOD_LABEL}")
+print("  Reconstruction panels use the bootstrap; observed precipitation has no")
+print("  bootstrap and keeps the inter-member t-test.")
+
+# --- reconstruction panels: the bootstrap significance test ------------------
+pt_sst_obs, sd_sst_obs, sig_sst_obs = ensemble_trend_significance(
+    linear_results, TREND_PERIOD_LABEL)
+agree_sst_obs = sign_agreement(linear_results, TREND_PERIOD_LABEL)
+
+pt_sst_amip, sd_sst_amip, sig_sst_amip = ensemble_trend_significance(
+    linear_results_amip, TREND_PERIOD_LABEL)
+agree_sst_amip = sign_agreement(linear_results_amip, TREND_PERIOD_LABEL)
+
+# The old two-gate result, computed only so the comparison can be printed.
+_h, g1_sst_obs, g2_sst_obs = calculate_two_gate_significance(
     linear_results, data_key='reconstruction',
     n_independent=N_INDEPENDENT_OBS, sign_threshold=SIGN_THRESHOLD_OBS)
-
-hatch_obs_obs,  g1_obs_obs,  g2_obs_obs  = calculate_two_gate_significance(
-    linear_results, data_key='observed_precip',
-    n_independent=N_INDEPENDENT_OBS, sign_threshold=SIGN_THRESHOLD_OBS)
-
-hatch_sst_amip, g1_sst_amip, g2_sst_amip = calculate_two_gate_significance(
+_h, g1_sst_amip, g2_sst_amip = calculate_two_gate_significance(
     linear_results_amip, data_key='reconstruction',
     n_independent=N_INDEPENDENT_AMIP, sign_threshold=SIGN_THRESHOLD_AMIP)
 
-hatch_obs_amip, g1_obs_amip, g2_obs_amip = calculate_two_gate_significance(
+report_significance("Obs  - SST-forced", pt_sst_obs, sd_sst_obs,
+                    agree_sst_obs, g1_sst_obs, g2_sst_obs)
+report_significance("AMIP - SST-forced", pt_sst_amip, sd_sst_amip,
+                    agree_sst_amip, g1_sst_amip, g2_sst_amip)
+
+
+# Hatching: slashes where not significant, backslashes where significant but
+# the datasets disagree on sign.
+hatch_sst_obs   = ~sig_sst_obs
+lowagr_sst_obs  = sig_sst_obs & (agree_sst_obs < AGREEMENT_THRESHOLD)
+hatch_sst_amip  = ~sig_sst_amip
+lowagr_sst_amip = sig_sst_amip & (agree_sst_amip < AGREEMENT_THRESHOLD)
+
+# --- observed precipitation: no bootstrap exists, so the two gates stand -----
+hatch_obs_obs,  _, _ = calculate_two_gate_significance(
+    linear_results, data_key='observed_precip',
+    n_independent=N_INDEPENDENT_OBS, sign_threshold=SIGN_THRESHOLD_OBS)
+
+hatch_obs_amip, _, _ = calculate_two_gate_significance(
     linear_results_amip, data_key='observed_precip',
     n_independent=N_INDEPENDENT_AMIP, sign_threshold=SIGN_THRESHOLD_AMIP)
 
-print("Significance calculations complete.")
 
-
-def _n_sig(hatch_mask):
-    return int((~hatch_mask).sum().item())
-
-def _gate_counts(hatch_mask, gate1, gate2):
-    n      = len(hatch_mask)
-    n_both = _n_sig(hatch_mask)
-    n_g1   = int(gate1.sum().item())
-    n_g2   = int(gate2.sum().item())
-    n_fail_g1_only = int((~gate1 &  gate2).sum().item())
-    n_fail_g2_only = int(( gate1 & ~gate2).sum().item())
-    return n, n_both, n_g1, n_g2, n_fail_g1_only, n_fail_g2_only
-
-print("\nSignificance summary (basins passing each gate):")
-for label, hm, g1, g2 in [
-    ("Obs  – SST-forced", hatch_sst_obs,  g1_sst_obs,  g2_sst_obs),
-    ("Obs  – total precip", hatch_obs_obs, g1_obs_obs,  g2_obs_obs),
-    ("AMIP – SST-forced", hatch_sst_amip, g1_sst_amip, g2_sst_amip),
-    ("AMIP – total precip", hatch_obs_amip, g1_obs_amip, g2_obs_amip),
-]:
-    n, n_both, n_g1, n_g2, fail1, fail2 = _gate_counts(hm, g1, g2)
-    print(f"  {label}:")
-    print(f"    Both gates (significant)  : {n_both}/{n}")
-    print(f"    Gate 1 only (t-test)      : {n_g1}/{n}")
-    print(f"    Gate 2 only (sign agree)  : {n_g2}/{n}")
-    print(f"    Fails t-test, passes sign : {fail1}")
-    print(f"    Passes t-test, fails sign : {fail2}")
-
+print(f"\n  Obs  - observed precip (two-gate) : {int((~hatch_obs_obs).sum())} significant")
+print(f"  AMIP - modelled precip (two-gate) : {int((~hatch_obs_amip).sum())} significant")
 
 # ============================================================================
 # HELPER: merge hatch mask into GeoDataFrame
 # ============================================================================
-def merge_hatch(gdf, hatch_mask_da):
-    hatch_df = hatch_mask_da.to_dataframe(name='hatch').reset_index()
+def merge_hatch(gdf, hatch_mask_da, column="hatch"):
+    # Strip non-dimension coordinates before the frame conversion. Anything
+    # left attached becomes a column, and merging a third mask then collides:
+    # pandas has already used the _x and _y suffixes on the first two.
+    hatch_mask_da = hatch_mask_da.drop_vars(
+        [c for c in hatch_mask_da.coords if c not in hatch_mask_da.dims]
+    )
+    hatch_df = hatch_mask_da.to_dataframe(name=column).reset_index()
     merged   = gdf.merge(hatch_df, left_on='MRBID', right_on='basin', how='left')
     cols = merged.columns.tolist()
     if 'basin_x' in cols:
         merged = merged.rename(columns={'basin_x': 'basin'}).drop(columns='basin_y')
+    # Basins in the shapefile but absent from the mask merge to NaN. NaN is
+    # truthy, so leaving it would silently mark them as failing the test rather
+    # than as having no test at all.
+    merged[column] = merged[column].fillna(False).astype(bool)
     return gpd.GeoDataFrame(merged, geometry='geometry')
 
 
 # ============================================================================
 # BUILD GeoDataFrames
 # ============================================================================
-def _make_gdf(trend_da, hatch_mask_da, name='P'):
+def _make_gdf(trend_da, hatch_mask_da, name="P", lowagr_da=None):
     trend_da = trend_da.copy()
+    trend_da = trend_da.drop_vars(
+        [c for c in trend_da.coords if c not in trend_da.dims]
+    )
     trend_da.name = name
     df  = trend_da.to_dataframe().reset_index()
     gdf = gpd.GeoDataFrame(
         grdc_basins.merge(df, left_on='MRBID', right_on='basin', how='left'),
         geometry='geometry'
     )
-    return merge_hatch(gdf, hatch_mask_da)
+    gdf = merge_hatch(gdf, hatch_mask_da)
+    # Second mark: significant, but the datasets disagree on the sign.
+    if lowagr_da is not None:
+        gdf = merge_hatch(gdf, lowagr_da, column='lowagr')
+    else:
+        gdf['lowagr'] = False
+    return gdf
 
-precip_sst_gdf_amip = _make_gdf(precip_sst_trend_amip, hatch_sst_amip)
+precip_sst_gdf_amip = _make_gdf(precip_sst_trend_amip, hatch_sst_amip, lowagr_da=lowagr_sst_amip)
 precip_obs_gdf_amip = _make_gdf(precip_obs_trend_amip, hatch_obs_amip)
-precip_sst_gdf_obs  = _make_gdf(precip_sst_trend_obs,  hatch_sst_obs)
+precip_sst_gdf_obs  = _make_gdf(precip_sst_trend_obs,  hatch_sst_obs,  lowagr_da=lowagr_sst_obs)
 precip_obs_gdf_obs  = _make_gdf(precip_obs_trend_obs,  hatch_obs_obs)
 
 
@@ -460,7 +544,8 @@ precip_norm     = BoundaryNorm(precip_levels,     precip_cmap.N)
 # ============================================================================
 # PLOTTING HELPER
 # ============================================================================
-def plot_basin_choropleth(ax, gdf, cmap, norm, hatch_col='hatch'):
+def plot_basin_choropleth(ax, gdf, cmap, norm, hatch_col='hatch',
+                          lowagr_col='lowagr'):
     for _, row in gdf.iterrows():
         val   = row["P"]
         color = cmap(norm(val)) if np.isfinite(val) else "lightgray"
@@ -473,6 +558,14 @@ def plot_basin_choropleth(ax, gdf, cmap, norm, hatch_col='hatch'):
                 [row.geometry], crs=ccrs.PlateCarree(),
                 facecolor='none', edgecolor='black',
                 linewidth=0.05, hatch='////////', alpha=0.8
+            )
+        # Backslashes: distinguishable from zero, but fewer than
+        # AGREEMENT_THRESHOLD of the members agree on the sign.
+        if row.get(lowagr_col, False):
+            ax.add_geometries(
+                [row.geometry], crs=ccrs.PlateCarree(),
+                facecolor='none', edgecolor='0.25',
+                linewidth=0.05, hatch=r'\\\\\\\\', alpha=0.8
             )
 
 

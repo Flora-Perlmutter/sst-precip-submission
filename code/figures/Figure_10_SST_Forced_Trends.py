@@ -10,13 +10,20 @@ Significance compares each trend against the regression's own sampling error,
 taken from the bootstrap distribution the pipeline saves per replicate, so the
 magnitude and the uncertainty come from the same fit.
 
-Significance and agreement (two axes, not one verdict)
-------------------------------------------------------
-Reported as three categories, following IPCC AR5/AR6 map convention:
+Hatching
+--------
+One mark, forward slashes, drawn where a basin fails EITHER criterion:
 
-  significant, robust agreement  no hatching
-  significant, low agreement     backslash hatching
-  not significant                slash hatching
+  hatched      not significant, OR fewer than 75% of members agree on the sign
+  not hatched  significant AND at least 75% agreement
+
+The two criteria are different in kind and the hatch is their union, not a
+single test: significance is the p < 0.05 claim, agreement is a descriptive
+statement about robustness across members. The hatch should be read as "do not
+rely on this basin", not as one procedure with a stated error rate -- three
+tests ANDed at nominal 5% each have no such rate. Both reasons for hatching are
+printed per panel below so the split stays visible even though the map merges
+them.
 
 SIGNIFICANCE compares the ensemble-mean trend to the standard deviation of the
 bootstrap distribution of that mean:
@@ -33,10 +40,9 @@ Averaging within the replicate is what retains the sampling error the members
 share. Drawing replicates independently per member averages that component away
 and understates the spread by roughly a factor of two.
 
-AGREEMENT is the fraction of members whose trend sign matches the ensemble mean,
-reported on its own axis rather than ANDed into the significance verdict. Three
-tests ANDed at nominal 5% each have no stated error rate and the result could
-not be described as a 5% procedure.
+AGREEMENT is the fraction of members whose trend sign matches the ensemble mean.
+It is a robustness statement about the ensemble, not a test, which is why the
+hatch it triggers carries no p-value of its own.
 
 Why the bootstrap is needed: inter-member spread measures disagreement between
 dataset choices, and all 16 members see the same 36-year record. Whatever that
@@ -45,8 +51,9 @@ spread entirely. On this ensemble the within-member SD is 0.431 against 0.159
 between members, so the superseded two-gate scheme used a standard error about
 six times too small and called 267 of 518 basins significant.
 
-Observed precipitation has no bootstrap, so those panels keep the inter-member
-t-test and are marked with slashes only.
+Observed precipitation has no bootstrap, so those panels use the inter-member
+t-test (df = 15 for obs, df = 5 for AMIP) in place of the bootstrap, ANDed with
+the same 75% agreement criterion. The hatch means the same thing on every panel.
 
 Limitations to state: no correction is made for testing ~518 basins, so roughly
 26 false positives are expected at nominal 5%; and replicate b means a different
@@ -400,12 +407,13 @@ def report_significance(label, point, sd, agree, gate1=None, gate2=None,
           f"  ({100*float(sig.mean()):5.1f}%)")
     print(f"    sign agreement >= {threshold:.0%}      : {int(robust.sum()):4d}"
           f"  ({100*float(robust.mean()):5.1f}%)")
-    # Categories come from the shared helper so the figures and the notebook
-    # cannot drift on what "robust" means.
+    # The map draws one hatch for the union of the two, so the split is
+    # reported here -- this is the only place the reasons stay separable.
     cat = three_categories(sig, agree, threshold)
-    print(f"    -> significant AND robust   : {int((cat == 2).sum()):4d}")
-    print(f"    -> significant, low agree   : {int((cat == 1).sum()):4d}")
-    print(f"    -> not significant          : {int((cat == 0).sum()):4d}")
+    print(f"    -> unhatched (sig AND robust) : {int((cat == 2).sum()):4d}")
+    print(f"    -> hatched, low agreement     : {int((cat == 1).sum()):4d}")
+    print(f"    -> hatched, not significant   : {int((cat == 0).sum()):4d}")
+    print(f"    -> hatched, total             : {int((cat != 2).sum()):4d}")
 
     if gate1 is not None and gate2 is not None:
         old = gate1 & gate2
@@ -447,12 +455,10 @@ report_significance("AMIP - SST-forced", pt_sst_amip, sd_sst_amip,
                     agree_sst_amip, g1_sst_amip, g2_sst_amip)
 
 
-# Hatching: slashes where not significant, backslashes where significant but
-# the datasets disagree on sign.
-hatch_sst_obs   = ~sig_sst_obs
-lowagr_sst_obs  = sig_sst_obs & (agree_sst_obs < AGREEMENT_THRESHOLD)
-hatch_sst_amip  = ~sig_sst_amip
-lowagr_sst_amip = sig_sst_amip & (agree_sst_amip < AGREEMENT_THRESHOLD)
+# Hatching: one mark, forward slashes, wherever a basin fails either
+# criterion, matching the observed-precipitation panels above.
+hatch_sst_obs  = ~(sig_sst_obs  & (agree_sst_obs  >= AGREEMENT_THRESHOLD))
+hatch_sst_amip = ~(sig_sst_amip & (agree_sst_amip >= AGREEMENT_THRESHOLD))
 
 # --- observed precipitation: no bootstrap exists, so the two gates stand -----
 hatch_obs_obs,  _, _ = calculate_two_gate_significance(
@@ -492,7 +498,7 @@ def merge_hatch(gdf, hatch_mask_da, column="hatch"):
 # ============================================================================
 # BUILD GeoDataFrames
 # ============================================================================
-def _make_gdf(trend_da, hatch_mask_da, name="P", lowagr_da=None):
+def _make_gdf(trend_da, hatch_mask_da, name="P"):
     trend_da = trend_da.copy()
     trend_da = trend_da.drop_vars(
         [c for c in trend_da.coords if c not in trend_da.dims]
@@ -504,16 +510,11 @@ def _make_gdf(trend_da, hatch_mask_da, name="P", lowagr_da=None):
         geometry='geometry'
     )
     gdf = merge_hatch(gdf, hatch_mask_da)
-    # Second mark: significant, but the datasets disagree on the sign.
-    if lowagr_da is not None:
-        gdf = merge_hatch(gdf, lowagr_da, column='lowagr')
-    else:
-        gdf['lowagr'] = False
     return gdf
 
-precip_sst_gdf_amip = _make_gdf(precip_sst_trend_amip, hatch_sst_amip, lowagr_da=lowagr_sst_amip)
+precip_sst_gdf_amip = _make_gdf(precip_sst_trend_amip, hatch_sst_amip)
 precip_obs_gdf_amip = _make_gdf(precip_obs_trend_amip, hatch_obs_amip)
-precip_sst_gdf_obs  = _make_gdf(precip_sst_trend_obs,  hatch_sst_obs,  lowagr_da=lowagr_sst_obs)
+precip_sst_gdf_obs  = _make_gdf(precip_sst_trend_obs,  hatch_sst_obs)
 precip_obs_gdf_obs  = _make_gdf(precip_obs_trend_obs,  hatch_obs_obs)
 
 
@@ -544,8 +545,7 @@ precip_norm     = BoundaryNorm(precip_levels,     precip_cmap.N)
 # ============================================================================
 # PLOTTING HELPER
 # ============================================================================
-def plot_basin_choropleth(ax, gdf, cmap, norm, hatch_col='hatch',
-                          lowagr_col='lowagr'):
+def plot_basin_choropleth(ax, gdf, cmap, norm, hatch_col='hatch'):
     for _, row in gdf.iterrows():
         val   = row["P"]
         color = cmap(norm(val)) if np.isfinite(val) else "lightgray"
@@ -558,14 +558,6 @@ def plot_basin_choropleth(ax, gdf, cmap, norm, hatch_col='hatch',
                 [row.geometry], crs=ccrs.PlateCarree(),
                 facecolor='none', edgecolor='black',
                 linewidth=0.05, hatch='////////', alpha=0.8
-            )
-        # Backslashes: distinguishable from zero, but fewer than
-        # AGREEMENT_THRESHOLD of the members agree on the sign.
-        if row.get(lowagr_col, False):
-            ax.add_geometries(
-                [row.geometry], crs=ccrs.PlateCarree(),
-                facecolor='none', edgecolor='0.25',
-                linewidth=0.05, hatch=r'\\\\\\\\', alpha=0.8
             )
 
 

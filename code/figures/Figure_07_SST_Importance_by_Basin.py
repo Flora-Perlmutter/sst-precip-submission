@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 """
-Figure 7: SST-forced precipitation variability and magnitude by basin.
+Figure 7: SST-forced precipitation variance and magnitude by basin.
 
 Author: Flora Perlmutter
 
@@ -9,7 +9,7 @@ Description
 -----------
 4-panel figure summarising across-basin SST importance:
   Panel A: Map of ensemble mean correlation^2 between SST reconstruction
-           and observed precipitation (SST-forced variability %)
+           and observed precipitation (SST-forced variance %)
   Panel B: Histogram of the same correlation^2, with selected basins annotated
   Panel C: Map of std(SST reconstruction) / std(observed precip) × 100
            (SST-forced magnitude %)
@@ -277,7 +277,7 @@ sm_corr = plt.cm.ScalarMappable(norm=corr_norm, cmap=corr_cmap)
 sm_corr.set_array([])
 cbar_map = fig.colorbar(sm_corr, ax=ax_map, ticks=[0, 6, 12, 18, 24, 30], 
                         orientation='horizontal', shrink=.8, pad=0.05)
-ax_map.set_title("Average SST-Forced Precipitation Variability")
+ax_map.set_title("Average SST-Forced Precipitation Variance")
 cbar_map.set_label("%")
 cbar_map.ax.minorticks_off()
 
@@ -292,7 +292,7 @@ corr_values = gdf_corr["r2"].dropna().values * 100
 hist_bins = np.linspace(0, 30, 21)  # Creates bins that align with 15% intervals
 n, bins, patches = ax_hist.hist(corr_values, bins=hist_bins, color="lightblue", linewidth=.5, 
                                  edgecolor="black", alpha=0.7)
-ax_hist.set_xlabel("Average SST-Forced Precipitation Variability (%)")
+ax_hist.set_xlabel("Average SST-Forced Precipitation Variance (%)")
 ax_hist.set_ylabel("Number of Basins")
 # Set x-axis ticks to match colorbar
 ax_hist.set_xticks([0, 6, 12, 18, 24, 30])
@@ -370,7 +370,7 @@ for basin_name in highlight_basins:
             arrowprops=dict(arrowstyle="->", lw=.8, color="black"),
             bbox=dict(facecolor='white', alpha=0.75, edgecolor='none', boxstyle="round,pad=0.2")
         )
-#ax_hist.set_title('Distribution of SST-Forced Precipitation Variabilities')
+#ax_hist.set_title('Distribution of SST-Forced Precipitation Variances')
 ax_hist.set_ylim(0, 150)
 ax_hist.set_xlim(0, 30)
 
@@ -499,7 +499,7 @@ for basin_name in highlight_basins_2:
         bbox=dict(facecolor='white', alpha=0.75, edgecolor='none', boxstyle="round,pad=0.2")
     )
     
-ax_hist_2.set_ylim(0, 300)
+ax_hist_2.set_ylim(0, 350)
 ax_hist_2.set_xlim(ratio_vmin, ratio_vmax)
     
 # Add panel labels

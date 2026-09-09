@@ -14,9 +14,21 @@
 #SBATCH --account=CMIG
 #SBATCH --partition=preemptable
 
-source /optnfs/common/miniconda3/etc/profile.d/conda.sh
+# Order matters: `module load python` puts anaconda3 python3.8 on PATH, so it
+# has to run BEFORE conda is set up. With it after, it shadowed the activated
+# environment and jobs silently ran under 3.8, which has no netCDF4 backend.
 module load python
+source /optnfs/common/miniconda3/etc/profile.d/conda.sh
 conda activate fp1225
+
+# Call the interpreter by absolute path rather than trusting PATH. Activation
+# does not reliably win inside a batch shell here -- `module load python` puts
+# anaconda3 python3.8 ahead of the activated environment, and that interpreter
+# has no netCDF4 backend. Resolving the prefix from conda keeps the path out of
+# the script while making PATH order irrelevant.
+PYTHON="$(conda env list | awk '$1=="fp1225" {print $NF}')/bin/python3"
+echo "Python: $PYTHON"
+"$PYTHON" -c "import xarray, netCDF4" || { echo "FATAL: fp1225 interpreter unusable"; exit 1; }
 
 export OMP_NUM_THREADS=1
 export MKL_NUM_THREADS=1
@@ -27,5 +39,5 @@ echo "Running on $(hostname)"
 echo "Task ID: $SLURM_ARRAY_TASK_ID"
 echo "CPUs per task: $SLURM_CPUS_PER_TASK"
 
-python3 -u /dartfs-hpc/rc/lab/C/CMIG/fperlmutter/git_repos/sst-precip-submission/code/scripts/19_PCA_vs_Regression_Cross_Validation.py --pair-index $SLURM_ARRAY_TASK_ID
+"$PYTHON" -u /dartfs-hpc/rc/lab/C/CMIG/fperlmutter/git_repos/sst-precip-submission/code/scripts/19_PCA_vs_Regression_Cross_Validation.py --pair-index $SLURM_ARRAY_TASK_ID
 

@@ -22,6 +22,17 @@ Pattern correlation is computed per basin: for each basin the obs bootstrap
 Both fields are ensemble-averaged across their respective (precip × SST)
 members before the per-basin spatial correlation is computed.
 
+Weighting convention
+--------------------
+The two fields are now on the same footing. `marginal_sensitivity` is the raw
+regression slope in mm month-1 K-1, and the PCA `sensitivity_map` has always been
+per unit SST (17_PCA_method.py divides the sqrt(cos lat) EOF weights back out
+before the back-transform). Previously the regression side additionally carried a
+grid-cell area factor, and a spatial correlation is not invariant to a
+latitude-dependent multiplier, so these correlations were comparing a tapered
+field against an untapered one. Values here differ from earlier versions for that
+reason.
+
 Required data files
 -------------------
   global_linear_regression_bootstrap_{P}_{SST}.nc   (run_bootstrap_se_obs.py)

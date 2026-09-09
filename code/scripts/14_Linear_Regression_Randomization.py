@@ -106,7 +106,11 @@ def run_single_bootstrap(seed, n_time, sst_detrended, p_detrended, sst_anom, p_a
         output_dtypes=[np.float32, np.float32, np.float32]
     )
 
-    # Apply area weighting (precomputed)
+    # Area weighting stays here because this script never saves a sensitivity --
+    # `slope_area_boot` exists only to reach the reconstruction below, which is
+    # the spatial integral the area factor belongs to. Note `slope_sig_boot` here
+    # is therefore area-weighted, unlike the same name in scripts 11 and 16 where
+    # it is the raw slope that gets saved.
     slope_area_boot = area_precomputed * slope_boot
 
     # FDR correction
@@ -262,6 +266,10 @@ def process_pair(p_name, p_anom, sst_name, sst_anom):
     # ========================================================================
     # FDR correction on original
     # ========================================================================
+    # As in the bootstrap above: area weighting belongs here because the only
+    # thing downstream is a reconstruction. This script saves correlations, not
+    # sensitivities, so the convention change in script 11 does not reach it and
+    # its outputs are unaffected.
     print("Applying FDR correction...")
     slope_area = area_precomputed * slope
     

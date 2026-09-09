@@ -16,6 +16,7 @@ Usage
         convert_time_to_years,
         linear_trend,
         plot_ensemble_on_ax,
+        grid_area,          # re-exported from regression_functions
     )
 """
 
@@ -30,7 +31,14 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # project root
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 from paths import CMIG_DATA
+
+# Re-exported, not redefined. Four figures now multiply the cell area back into a
+# sensitivity to form an SST-forced contribution, and Figure 12 regrids across two
+# grids; if this drifted from the pipeline's own grid_area those panels would be
+# wrong with nothing to flag it. One definition, in regression_functions.
+from regression_functions import grid_area  # noqa: F401  (re-export)
 
 warnings.filterwarnings("ignore")
 
@@ -331,30 +339,4 @@ def plot_ensemble_on_ax(linear_results: dict, basin_id: int, ax) -> None:
 
     ax.xaxis_date()
     ax.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
-    
-    
-def grid_area(xarray: xr.DataArray) -> xr.DataArray:
-    """
-    Compute fractional surface area of each grid cell on a lat/lon grid.
 
-    Returns
-    -------
-    xr.DataArray with dims ['lat', 'lon'], values in fractional Earth surface area.
-    """
-    lat = xarray["lat"]
-    lon = xarray["lon"]
-
-    lat_interval = abs(float(lat[1] - lat[0]))
-    lon_interval = abs(float(lon[1] - lon[0]))
-
-    lat_rad = np.deg2rad(lat)
-    dlat    = lat_interval * (np.pi / 180.0)
-    dlon    = lon_interval * (np.pi / 180.0)
-
-    area = dlon * (np.sin(lat_rad + dlat / 2) - np.sin(lat_rad - dlat / 2))
-
-    return xr.DataArray(
-        np.broadcast_to(area, (len(lon), len(lat))).T,
-        coords={"lat": lat, "lon": lon},
-        dims=["lat", "lon"],
-    )

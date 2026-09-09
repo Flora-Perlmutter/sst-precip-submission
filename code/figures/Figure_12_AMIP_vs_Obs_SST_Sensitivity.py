@@ -47,7 +47,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # project root
 from paths import DATA_DIR, PAPER_FIGURE_DIR, bootstrap_file
 from plotting_functions import (
     apply_fixdates_to_results,
-    compute_ensemble_means,basin_id_for_name,basin_name_for_id, grid_area
+    compute_ensemble_means,basin_id_for_name,basin_name_for_id
 )
 
 warnings.filterwarnings("ignore")
@@ -238,23 +238,18 @@ correlations = np.full(n_basins, np.nan)
 rmses = np.full(n_basins, np.nan)
 basin_names = []
 
-# Precompute once, outside the basin loop
-area_amip = grid_area(ensemble_amip[ms_name].isel(basin=0))
-area_obs  = grid_area(ensemble_obs[ms_name].isel(basin=0))
-
 for idx, basin_id in enumerate(basin_ids):
     try:
         amip_mean = ensemble_amip[ms_name].sel(basin=basin_id)
         obs_mean  = ensemble_obs[ms_name].sel(basin=basin_id)
 
-        # 1. Un-weight: convert area-weighted MS back to per-unit-area MS
-        obs_per_area = obs_mean / area_obs
-
-        # 2. Interpolate the per-area field (physically meaningful to interp)
-        obs_per_area_rg = obs_per_area.interp(lat=amip_mean.lat, lon=amip_mean.lon)
-
-        # 3. Re-apply the AMIP grid's area so both fields are weighted consistently
-        obs_mean_rg = obs_per_area_rg * area_amip
+        # Both fields are now raw sensitivities in mm month-1 K-1, so regridding
+        # is a plain interpolation. This used to be a three-step dance -- divide
+        # out the obs grid's cell area, interpolate, multiply the AMIP grid's back
+        # in -- because the saved sensitivity carried an area factor that is not
+        # comparable across two different grids. Moving the area weighting into
+        # the reconstruction removed the need for it.
+        obs_mean_rg = obs_mean.interp(lat=amip_mean.lat, lon=amip_mean.lon)
 
         corr, rmse = calculate_pattern_metrics(amip_mean, obs_mean_rg)
         correlations[idx] = corr

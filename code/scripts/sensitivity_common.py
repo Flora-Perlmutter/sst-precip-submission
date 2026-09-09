@@ -30,9 +30,13 @@ Usage
     )
 
 The loading, alignment, detrending, regression and area-weighting steps here
-reproduce 11_Linear_Regression_Bootstrap_SE.py:328-384 exactly, so a sensitivity
-run at the baseline settings is bit-identical to the pipeline. Line references to
-script 11 are given per function.
+reproduce 11_Linear_Regression_Bootstrap_SE.py exactly, so a sensitivity run at
+the baseline settings is bit-identical to the pipeline.
+
+One ordering matters throughout: `slope` is the sensitivity and is never
+area-weighted. Cell area is a property of the spatial integral, so it is applied
+inside `reconstruct` and nowhere else. Anything that presents a sensitivity --
+a map, a pattern correlation, a standard error -- uses the raw slope.
 
 What is deliberately NOT here: the bootstrap. `slope` and `pval` do not depend on
 the significance threshold, the FDR family, the area convention or the grid, so
@@ -234,44 +238,57 @@ def fit_regression(sst_det: xr.DataArray, p_det: xr.DataArray,
 
 def area_weights(slope: xr.DataArray) -> tuple:
     """
-    Grid-cell area weights, and the area-weighted slope field.
+    Grid-cell area weights, broadcast to the slope's basin axis.
 
-    Mirrors 11_Linear_Regression_Bootstrap_SE.py:361-372. `grid_area` returns
-    spherical-cap fractional areas that sum to 4*pi steradians over the globe
-    (regression_functions.py:117-141), so the weighted sum is an area-weighted
-    mean times ~12.57 rather than a normalised mean. Grid spacing is inferred
-    from the coordinate, so this adapts to any regular grid without change.
+    `grid_area` returns spherical-cap fractional areas that sum to 4*pi
+    steradians over the globe (regression_functions.py:130-154), so a weighted
+    sum is an area-weighted mean times ~12.57 rather than a normalised mean.
+    Grid spacing is inferred from the coordinate, so this adapts to any regular
+    grid without change.
+
+    Returns the broadcast field as well as the (lat, lon) one because
+    `reconstruct` contracts against (lat, lon, basin) and broadcasting once here
+    is cheaper than doing it per replicate.
+
+    Note what this does NOT return: an area-weighted slope. Multiplying area into
+    the sensitivity is what made the saved fields impossible to label, so the
+    product is formed only where the reconstruction is.
 
     Returns
     -------
-    area       : (lat, lon)             steradians
-    slope_area : (lat, lon, basin)      area * slope
+    area      : (lat, lon)             steradians
+    area_full : (lat, lon, basin)      area broadcast over basins
     """
-    area       = grid_area(slope).astype(np.float32)
-    slope_area = (area * xr.ones_like(slope)) * slope
-    return area, slope_area
+    area      = grid_area(slope).astype(np.float32)
+    area_full = area * xr.ones_like(slope)
+    return area, area_full
 
 
 # ---------------------------------------------------------------------------
 # Reconstruction
 # ---------------------------------------------------------------------------
 
-def reconstruct(sst_anom: xr.DataArray, slope_sig: xr.DataArray) -> xr.DataArray:
+def reconstruct(sst_anom: xr.DataArray, slope_sig: xr.DataArray,
+                area_full: xr.DataArray) -> xr.DataArray:
     """
     SST-forced reconstruction: sum over grid cells of area * beta * SST anomaly.
 
-    Equivalent to `(sst_anom * slope_sig).sum(('lat','lon'))` at
-    11_Linear_Regression_Bootstrap_SE.py:384 — xarray's `.sum` skips NaN, and
-    filling NaN with 0 before the contraction gives the same answer — but uses a
-    tensor contraction instead of materialising the full (time, lat, lon, basin)
-    product, which is ~14 GB on the 2 degree grid.
+    Equivalent to `(sst_anom * area_full * slope_sig).sum(('lat','lon'))` in
+    script 11 — xarray's `.sum` skips NaN, and filling NaN with 0 before the
+    contraction gives the same answer — but uses a tensor contraction instead of
+    materialising the full (time, lat, lon, basin) product, which is ~14 GB on
+    the 2 degree grid.
+
+    `area_full` is passed in rather than folded into `slope_sig` upstream: this
+    is the step that owns the area factor, because it is the only step that is a
+    spatial integral. `slope_sig` stays a sensitivity everywhere else.
 
     Note this uses the NON-detrended `sst_anom`, as script 11 does, even though
     the slopes were fitted on detrended SST.
     """
     return xr.dot(
         sst_anom.fillna(0.0),
-        slope_sig.fillna(0.0),
+        (area_full * slope_sig).fillna(0.0),
         dims=("lat", "lon"),
     )
 

@@ -34,7 +34,7 @@ from joblib import Parallel, delayed
 from scipy.stats import pearsonr
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # project root
 from paths import CMIG_DATA, DATA_DIR
-from regression_functions import detrend_dim, grid_area, fdr_correction, regression_slope_se
+from regression_functions import detrend_dim, fdr_correction, regression_slope_se
 
 warnings.filterwarnings("ignore")
 
@@ -82,19 +82,24 @@ print(f"FDR alpha: {ALPHA}")
 # FDR MASKING
 # ============================================================================
 
-def fdr_mask_sensitivity(slope_area, pval, alpha=ALPHA):
+def fdr_mask_sensitivity(slope, pval, alpha=ALPHA):
     """
     Zero out grid cells whose slope fails the BH-FDR test.
 
     Cells are pooled into one family per basin, matching
-    11_Linear_Regression_Bootstrap_SE.py:374. Insignificant cells become 0.0
-    (they contribute nothing to the reconstruction, which is the quantity the
-    pattern correlation is about), while cells that were already NaN -- land,
-    missing data -- stay NaN so they are dropped from the correlation instead
-    of entering it as a block of identical zeros.
+    11_Linear_Regression_Bootstrap_SE.py. Insignificant cells become 0.0, while
+    cells that were already NaN -- land, missing data -- stay NaN so they are
+    dropped from the correlation instead of entering it as a block of identical
+    zeros.
+
+    `slope` is the raw sensitivity, not an area-weighted one. This script's
+    product is a spatial pattern correlation between sensitivity fields, and a
+    correlation is not invariant to a latitude-dependent multiplier: weighting by
+    cell area would tilt the answer toward the tropics. Area weighting belongs to
+    the reconstruction, which this script never forms.
     """
     mask = fdr_correction(pval, alpha_FDR=alpha)
-    return slope_area.where(mask | slope_area.isnull(), 0.0)
+    return slope.where(mask | slope.isnull(), 0.0)
 
 # ============================================================================
 # LOAD DATA
@@ -149,12 +154,8 @@ for sst_name, sst_anom in sst_dict.items():
             output_dtypes=[np.float32, np.float32, np.float32]
         )
 
-        # Area weighting
-        area = grid_area(slope).astype(np.float32)
-        slope_area = area * slope
-
         # FDR correction, per member, before the ensemble mean
-        slope_sig = fdr_mask_sensitivity(slope_area, pval)
+        slope_sig = fdr_mask_sensitivity(slope, pval)
 
         all_full_period_sensitivities.append(slope_sig)
 
@@ -228,12 +229,8 @@ def process_dataset_pair(sst_name, sst_anom, p_name, p_anom,
             output_dtypes=[np.float32, np.float32, np.float32]
         )
 
-        # Area weighting
-        area = grid_area(slope).astype(np.float32)
-        slope_area = area * slope
-
         # FDR correction, applied window by window
-        slope_sig = fdr_mask_sensitivity(slope_area, pval)
+        slope_sig = fdr_mask_sensitivity(slope, pval)
 
         window_sensitivities_all.append(slope_sig)
     

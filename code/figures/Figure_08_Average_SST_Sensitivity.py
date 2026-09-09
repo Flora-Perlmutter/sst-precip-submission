@@ -10,10 +10,17 @@ Description
 4-panel global map figure:
   Panel A (top-left):     Ensemble mean SST sensitivity (dP/dSST)
                           basin-averaged across all GRDC basins
-  Panel B (top-right):    Convolved quantity: mean(|MS|) × SST variability
-                          ("total sensitivity")
+  Panel B (top-right):    SST-forced contribution: area × MS × SST variability
   Panel C (bottom-left):  Bootstrap SE of the SST sensitivity
   Panel D (bottom-right): Ensemble mean SST variability (std over time)
+
+Weighting convention
+--------------------
+Panels A and C show the raw regression slope in mm month-1 K-1, exactly as the
+pipeline saves it. Grid-cell area is not part of a sensitivity; it belongs to the
+spatial integral that turns one into a contribution, so panel B re-applies it and
+panels A and C do not. Panel B is therefore numerically identical to what this
+figure has always shown, while A and C are ~800/cos(lat) larger than before.
 
 Required data files
 -------------------------------
@@ -41,7 +48,7 @@ from scipy import stats
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # project root
 from paths import DATA_DIR, PAPER_FIGURE_DIR, bootstrap_file
-from plotting_functions import compute_ensemble_means, compute_ensemble_mean_sst
+from plotting_functions import compute_ensemble_means, compute_ensemble_mean_sst, grid_area
 
 warnings.filterwarnings("ignore")
 
@@ -136,29 +143,18 @@ sst_variability = sst_ensemble.std('time')
 basin_ids = grdc_basins['MRBID'].values
 
 # --- SST sensitivity ---
-ms = ensemble_obs['marginal_sensitivity_sst'].reindex(basin=basin_ids).mean(dim='basin', skipna=True)
-#ms_std = ensemble_obs['marginal_sensitivity_sst_std'].reindex(basin=basin_ids).mean(dim='basin', skipna=True)
-ms_se = ensemble_obs['marginal_sensitivity_sst_se'].reindex(basin=basin_ids).mean(dim='basin', skipna=True)
-ms_se = ms_se.where(ms_se != 0, np.nan)
-
-# --- Convolved quantity |MS| * SST variability ---
-convolved = ms * sst_variability
-
-lats = ms.lat.values
-lons = ms.lon.values
-
-# -------------------------------
-# Prepare data for all panels
-# -------------------------------
-basin_ids = grdc_basins['MRBID'].values
-
-# --- SST sensitivity ---
+# Panels a and c present a sensitivity, so they are the raw slope the pipeline
+# saves: mm month-1 K-1, with no cell-area factor.
 ms = ensemble_obs['marginal_sensitivity_sst'].reindex(basin=basin_ids).mean(dim='basin', skipna=True)
 ms_se = ensemble_obs['marginal_sensitivity_sst_se'].reindex(basin=basin_ids).mean(dim='basin', skipna=True)
 ms_se = ms_se.where(ms_se != 0, np.nan)
 
-# --- Convolved quantity |MS| * SST variability ---
-convolved = ms * sst_variability
+# --- SST-forced contribution: area * MS * SST variability ---
+# Panel b is a contribution, not a sensitivity, so the cell area enters here --
+# the same factor the reconstruction carries. Without it the panel would be a
+# per-unit-area rate that no amount of SST variability turns into mm month-1.
+area = grid_area(ms)
+convolved = ms * area * sst_variability
 
 # -----------------------------------------------------------------------
 # SIGNIFICANCE MASKING (Observations: df = 15)
@@ -231,18 +227,25 @@ num_levels_sst = 20
 sst_cmap = plt.get_cmap('Blues', num_levels_sst)
 sst_norm = BoundaryNorm(np.linspace(sst_vmin, sst_vmax, num_levels_sst + 1), sst_cmap.N)
 
-# MS
-ms_vmin, ms_vmax = -.04, .04
+# MS -- the sensitivity itself, mm month-1 K-1.
+# These limits changed when the cell-area factor moved out of the saved
+# sensitivity and into the reconstruction. On the 2 degree grid a cell subtends
+# ~1.2e-3 * cos(lat) sr, so the raw slope is ~800/cos(lat) times the old
+# area-weighted field: the previous +/-0.04 becomes tens of mm month-1 K-1, and
+# the 1/cos(lat) tilts the extremes poleward. The diagnostic block below prints
+# the percentiles these are set from -- re-read it if the ensemble changes.
+ms_vmin, ms_vmax = -30, 30
 num_levels_sst = 20
 ms_cmap = plt.get_cmap('RdBu', num_levels_sst)
 ms_norm = BoundaryNorm(np.linspace(ms_vmin, ms_vmax, num_levels_sst + 1), ms_cmap.N)
 
-# SE
-se_vmin, se_vmax = 0, .01
+# SE -- same units as MS, so scaled the same way (was 0.01).
+se_vmin, se_vmax = 0, 8
 se_cmap = plt.get_cmap('Blues', num_levels_sst)
 se_norm = BoundaryNorm(np.linspace(se_vmin, se_vmax, num_levels_sst + 1), se_cmap.N)
 
-# Convolved
+# Convolved -- the SST-forced contribution. Numerically unchanged by the
+# reordering (area is re-applied above), so these limits stay as they were.
 total_vmin, total_vmax = -.04, .04
 total_cmap = plt.get_cmap('RdBu', num_levels_sst)
 total_norm = BoundaryNorm(np.linspace(total_vmin, total_vmax, num_levels_sst + 1), total_cmap.N)
@@ -273,14 +276,14 @@ ax1.contourf(lons, lats, hatch_mask_A.values.astype(float),
 sm1 = plt.cm.ScalarMappable(norm=ms_norm, cmap=ms_cmap)
 sm1.set_array([])
 cbar_ticks_1 = np.round(np.linspace(ms_vmin, ms_vmax, 5), 2)
+# extend='both': the raw sensitivity carries a 1/cos(lat) tail, so values outside
+# the range are expected. 'neither' would paint them the end colour and say nothing.
 cbar1 = fig.colorbar(sm1, ax=ax1, ticks=cbar_ticks_1,
-                     orientation='horizontal', extend='neither',
+                     orientation='horizontal', extend='both',
                      shrink=0.8, pad=0.05)
-cbar1.formatter.set_powerlimits((-2, 2))
 ax1.set_title("Average SST Sensitivity")
 cbar1.set_label(r'mm month$^{-1}$ K$^{-1}$', labelpad=2)
 cbar1.ax.minorticks_off()
-cbar1.ax.xaxis.get_offset_text().set_x(1.1)
 
 
 # -------------------------------
@@ -333,24 +336,19 @@ ax3.add_feature(cfeature.LAND, facecolor="white", zorder=1)
 # Colorbar for Panel C
 sm3 = plt.cm.ScalarMappable(norm=se_norm, cmap=se_cmap)
 sm3.set_array([])
-cbar_ticks_3 = np.linspace(se_vmin, se_vmax, 5)
-cbar_ticks_3 = np.round(cbar_ticks_3, 4)
+cbar_ticks_3 = np.round(np.linspace(se_vmin, se_vmax, 5), 2)
 cbar3 = fig.colorbar(
     sm3, 
     ax=ax3, 
     ticks=cbar_ticks_3, 
     orientation='horizontal', 
-    extend='neither',
+    extend='max',
     shrink=0.8,
     pad=0.05
 )
-# |MS| × SST Variability
 ax3.set_title("Average Sensitivity Standard Error")
 cbar3.set_label(r'mm month$^{-1}$ K$^{-1}$', labelpad=2)
-cbar3.formatter.set_powerlimits((-3, -3))
 cbar3.ax.minorticks_off()
-offset_text = cbar3.ax.xaxis.get_offset_text()
-offset_text.set_x(1.1)
 
 # -------------------------------
 # Panel D: SST Variability
@@ -443,10 +441,31 @@ print()
 print(f"Percent of all oceans (positive)      : {pct_pos:.1f}%")
 print(f"Percent of all oceans (negative)      : {pct_neg:.1f}%")
 print()
+# Now a genuine mm month^-1 K^-1 -- previously this printed an area-weighted
+# quantity under the same label. Manuscript values quoting it need updating.
 print(f"Mean positive sensitivity             : {mean_pos:.3f} mm month^-1 K^-1")
 print(f"Mean negative sensitivity             : {mean_neg:.3f} mm month^-1 K^-1")
 print()
 print(f"Percent of significant cells positive : {pct_pos_sig:.1f}%")
 print(f"Percent of significant cells negative : {pct_neg_sig:.1f}%")
+
+# ----------------------------------------------------------
+# Colour-limit diagnostic
+# ----------------------------------------------------------
+# ms_vmax and se_vmax are hardcoded above, and the right value moved by ~3 orders
+# of magnitude when the area factor left the sensitivity. Print the distribution
+# they should be set from so a limit that has gone stale is visible in the log
+# rather than as silently saturated colour.
+print()
+print("Colour-limit diagnostic (set ms_vmax / se_vmax from these)")
+print("-" * 50)
+for name, field, vmax in (("sensitivity", ms, ms_vmax), ("sensitivity SE", ms_se, se_vmax)):
+    vals = np.abs(field.values[np.isfinite(field.values)])
+    if vals.size == 0:
+        continue
+    p95, p98, p99 = np.percentile(vals, [95, 98, 99])
+    frac_clipped = 100.0 * float((vals > abs(vmax)).mean())
+    print(f"{name:<16} |x| p95={p95:.3g}  p98={p98:.3g}  p99={p99:.3g}  "
+          f"max={vals.max():.3g}  | current limit {vmax:g} clips {frac_clipped:.1f}%")
 
 

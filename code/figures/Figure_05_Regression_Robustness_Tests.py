@@ -21,10 +21,19 @@ Description
                    across all basins. Shaded bands (±1 SD across basins) and
                    per-member lines show pattern stability over time.
 
+Weighting convention
+--------------------
+Panel B's pattern correlations are computed by
+15_Stability_of_the_marginal_sensitivity.py on the raw sensitivity field. A
+spatial correlation is not invariant to a latitude-dependent multiplier, so
+weighting the sensitivity by grid-cell area first would have tilted the stability
+estimate toward the tropics. Values here differ from versions of this figure
+produced before that weighting moved into the reconstruction.
+
 Required data files
 -------------------------------
-  randomization_experiment_{P}_{SST}.nc   (run_bootstrap_randomization.py)
-  pattern_correlations_all_basins.nc       (compute_pattern_correlations.py)
+  randomization_experiment_{P}_{SST}.nc                (script 14)
+  pattern_correlations_all_basins_fdr_corrected.nc     (script 15)
   
   Output
 ------

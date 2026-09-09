@@ -13,9 +13,17 @@ quantities instead of observational ensemble quantities:
            significance hatching where the ensemble mean is not
            distinguishable from zero at p<0.05 (t-test, df=5) OR
            fewer than 75% of members agree on the sign of the trend.
-  Panel B: AMIP convolved quantity: SST Sensitivity × SST variability, same hatching.
+  Panel B: AMIP SST-forced contribution: area × SST sensitivity × SST
+           variability, same hatching.
   Panel C: AMIP bootstrap SE of the SST sensitivity
   Panel D: AMIP ensemble mean SST variability (std over time)
+
+Weighting convention
+--------------------
+As in Figure 8: panels A and C are the raw slope in mm month-1 K-1, and the
+grid-cell area is applied only in panel B, where it turns a sensitivity into a
+contribution. Panel B is unchanged from previous versions; A and C are
+~800/cos(lat) larger.
 
 Required data files
 -------------------------------
@@ -51,6 +59,7 @@ from plotting_functions import (
     apply_fixdates_to_sst,
     compute_ensemble_mean_sst,
     compute_ensemble_means,
+    grid_area,
 )
 
 warnings.filterwarnings("ignore")
@@ -212,14 +221,18 @@ sst_ensemble = compute_ensemble_mean_sst(sst_dict)
 basin_ids = grdc_basins['MRBID'].values
 
 # --- SST sensitivity ---
+# Raw slope, mm month-1 K-1 -- see the weighting note in the module docstring.
 amip_ms = ensemble_amip['marginal_sensitivity_sst'].reindex(basin=basin_ids).mean(dim='basin', skipna=True)
 amip_ms_se = ensemble_amip['marginal_sensitivity_sst_se'].reindex(basin=basin_ids).mean(dim='basin', skipna=True)
 amip_ms_se = amip_ms_se.where(amip_ms_se != 0, np.nan)
 
 amip_sst_variability = amip_sst_ensemble.std('time')
 
-# --- Convolved quantity SST Sensitivity * SST variability ---
-amip_convolved = amip_ms * amip_sst_variability
+# --- SST-forced contribution: area * SST sensitivity * SST variability ---
+# The cell area belongs to the contribution, not to the sensitivity, so it is
+# re-applied here and nowhere else. Panel b is numerically unchanged.
+amip_area = grid_area(amip_ms)
+amip_convolved = amip_ms * amip_area * amip_sst_variability
 
 amip_lats = amip_ms.lat.values
 amip_lons = amip_ms.lon.values
@@ -287,23 +300,32 @@ sst_cmap = ListedColormap(colors[:-1])
 sst_cmap.set_over(colors[-1])
 sst_norm = BoundaryNorm(np.linspace(sst_vmin, sst_vmax, num_levels_sst + 1), sst_cmap.N)
 
-# MS
-ms_vmin, ms_vmax = -.04, .04
-ms_cmap = plt.get_cmap('RdBu', num_levels_sst+1)
-colors = ms_cmap(np.arange(num_levels_sst + 1))
-ms_cmap = ListedColormap(colors[:-1])
+# MS -- the sensitivity itself, mm month-1 K-1. Limits changed when the cell-area
+# factor moved out of the saved sensitivity; the scale factor is 1/area, which on
+# the AMIP grid depends on which model turned out to be coarsest (script 07 regrids
+# to the coarsest common grid), so the diagnostic at the foot of this file prints
+# the percentiles these should be set from. Deliberately equal to Figure 8's: the
+# raw slope is a per-unit-SST rate, so obs and AMIP are now directly comparable
+# even though they live on different grids -- which they were not while each
+# carried its own grid's cell area.
+ms_vmin, ms_vmax = -30, 30
+ms_cmap = plt.get_cmap('RdBu', num_levels_sst + 2)
+colors = ms_cmap(np.arange(num_levels_sst + 2))
+ms_cmap = ListedColormap(colors[1:-1])
+ms_cmap.set_under(colors[0])
 ms_cmap.set_over(colors[-1])
 ms_norm = BoundaryNorm(np.linspace(ms_vmin, ms_vmax, num_levels_sst + 1), ms_cmap.N)
 
-# SE
-se_vmin, se_vmax = 0, .01
+# SE -- same units as MS, scaled the same way (was 0.01).
+se_vmin, se_vmax = 0, 8
 se_cmap = plt.get_cmap('Blues', num_levels_sst+1)
 colors = se_cmap(np.arange(num_levels_sst + 1))
 se_cmap = ListedColormap(colors[:-1])
 se_cmap.set_over(colors[-1])
 se_norm = BoundaryNorm(np.linspace(se_vmin, se_vmax, num_levels_sst + 1), se_cmap.N)
 
-# Convolved
+# Convolved -- the SST-forced contribution. Numerically unchanged by the
+# reordering, so these limits stay as they were.
 total_vmin, total_vmax = -.04, .04
 total_cmap = plt.get_cmap('RdBu', num_levels_sst+1)
 colors = total_cmap(np.arange(num_levels_sst + 1))
@@ -342,15 +364,13 @@ cbar1 = fig.colorbar(
     ax=ax1,
     ticks=cbar_ticks_1,
     orientation='horizontal',
-    extend='max',
+    extend='both',
     shrink=0.8,
     pad=0.05
 )
-cbar1.formatter.set_powerlimits((-2, 2))
 ax1.set_title("AMIP Average SST Sensitivity")
 cbar1.set_label(r'mm month$^{-1}$ K$^{-1}$', labelpad=2)
 cbar1.ax.minorticks_off()
-cbar1.ax.xaxis.get_offset_text().set_x(1.1)
 
 
 # -------------------------------
@@ -409,7 +429,7 @@ ax3.add_feature(cfeature.LAND, facecolor="white", zorder=1)
 # Colorbar for Panel C
 sm3 = plt.cm.ScalarMappable(norm=se_norm, cmap=se_cmap)
 sm3.set_array([])
-cbar_ticks_3 = np.round(np.linspace(se_vmin, se_vmax, 5), 4)
+cbar_ticks_3 = np.round(np.linspace(se_vmin, se_vmax, 5), 2)
 cbar3 = fig.colorbar(
     sm3,
     ax=ax3,
@@ -421,9 +441,7 @@ cbar3 = fig.colorbar(
 )
 ax3.set_title("AMIP Average Sensitivity Standard Error")
 cbar3.set_label(r'mm month$^{-1}$ K$^{-1}$', labelpad=2)
-cbar3.formatter.set_powerlimits((-3, -3))
 cbar3.ax.minorticks_off()
-cbar3.ax.xaxis.get_offset_text().set_x(1.1)
 
 # -------------------------------
 # Panel D: SST Variability
@@ -520,3 +538,24 @@ print(f"Mean negative sensitivity             : {mean_neg:.3f} mm month^-1 K^-1"
 print()
 print(f"Percent of significant cells positive : {pct_pos_sig:.1f}%")
 print(f"Percent of significant cells negative : {pct_neg_sig:.1f}%")
+
+# ----------------------------------------------------------
+# Colour-limit diagnostic
+# ----------------------------------------------------------
+# ms_vmax and se_vmax are hardcoded above, and the right value moved by ~3 orders
+# of magnitude when the area factor left the sensitivity. The AMIP grid is
+# whichever model turned out coarsest, so the factor is not fixed in advance:
+# print the distribution the limits should be set from rather than leaving a
+# stale limit to show up only as saturated colour.
+print()
+print("Colour-limit diagnostic (set ms_vmax / se_vmax from these)")
+print("-" * 50)
+for name, field, vmax in (("sensitivity", amip_ms, ms_vmax),
+                          ("sensitivity SE", amip_ms_se, se_vmax)):
+    vals = np.abs(field.values[np.isfinite(field.values)])
+    if vals.size == 0:
+        continue
+    p95, p98, p99 = np.percentile(vals, [95, 98, 99])
+    frac_clipped = 100.0 * float((vals > abs(vmax)).mean())
+    print(f"{name:<16} |x| p95={p95:.3g}  p98={p98:.3g}  p99={p99:.3g}  "
+          f"max={vals.max():.3g}  | current limit {vmax:g} clips {frac_clipped:.1f}%")

@@ -192,20 +192,19 @@ def run_single_bootstrap(seed, n_time, sst_detrended, rh_detrended, p_detrended,
         output_dtypes=[np.float32, np.float32, np.float32, np.float32, np.float32, np.float32]
     )
     
-    # Apply area weighting to SST slopes
-    slope_sst_area_boot = area_precomputed * slope_sst_boot
-    
-    # FDR correction
+    # FDR correction on the RAW slopes. Figure 2 divides this script's SST
+    # sensitivity by script 11's, so the two must carry the same convention or the
+    # attenuation ratio picks up a spurious cos(lat) factor.
     fdr_mask_sst_boot = fdr_correction(pval_sst_boot, alpha_FDR=alpha)
     fdr_mask_rh_boot = fdr_correction(pval_rh_boot, alpha_FDR=alpha)
     
-    slope_sst_sig_boot = slope_sst_area_boot.where(fdr_mask_sst_boot, 0.0)
+    slope_sst_sig_boot = slope_sst_boot.where(fdr_mask_sst_boot, 0.0)
     slope_rh_sig_boot = slope_rh_boot.where(fdr_mask_rh_boot, 0.0)
     
     rh_anom_expanded = rh_anom.expand_dims(lat=sst_anom.lat, lon=sst_anom.lon)
     
-    # Reconstructions with original anomalies
-    reconstruction_sst_boot = (sst_anom * slope_sst_sig_boot).sum(('lat', 'lon'))
+    # Reconstructions with original anomalies. Area weighting enters here only.
+    reconstruction_sst_boot = (sst_anom * area_precomputed * slope_sst_sig_boot).sum(('lat', 'lon'))
     reconstruction_rh_boot = (rh_anom_expanded * slope_rh_sig_boot).mean(('lat', 'lon'))
     reconstruction_total_boot = reconstruction_sst_boot + reconstruction_rh_boot
     
@@ -485,10 +484,10 @@ def process_pair(p_name, p_da, sst_name, sst_da, rh_da):
     # ========================================================================
     # FDR correction on original
     # ========================================================================
+    # Masked on the RAW slopes, matching 11_Linear_Regression_Bootstrap_SE.py: the
+    # saved SST sensitivity is per unit SST, and cell area is applied only in the
+    # reconstruction below.
     print("Applying FDR correction...")
-    slope_sst_area = area_precomputed * slope_sst
-    slope_sst_se_area = area_precomputed * slope_se_sst
-    
     fdr_mask_sst = fdr_correction(pval_sst, alpha_FDR=ALPHA)
     fdr_mask_rh = fdr_correction(pval_rh, alpha_FDR=ALPHA)
     
@@ -497,8 +496,8 @@ def process_pair(p_name, p_da, sst_name, sst_da, rh_da):
     print(f"  Significant SST cells: {n_sig_sst}")
     print(f"  Significant RH cells: {n_sig_rh}")
     
-    slope_sst_sig = slope_sst_area.where(fdr_mask_sst)
-    slope_sst_se_sig = slope_sst_se_area.where(fdr_mask_sst)
+    slope_sst_sig = slope_sst.where(fdr_mask_sst)
+    slope_sst_se_sig = slope_se_sst.where(fdr_mask_sst)
     slope_rh_sig = slope_rh.where(fdr_mask_rh)
     slope_rh_se_sig = slope_se_rh.where(fdr_mask_rh)
     
@@ -509,7 +508,7 @@ def process_pair(p_name, p_da, sst_name, sst_da, rh_da):
     
     rh_anom_expanded = rh_anom.expand_dims(lat=sst_anom.lat, lon=sst_anom.lon)
     
-    reconstruction_sst = (sst_anom * slope_sst_sig).sum(('lat', 'lon'))
+    reconstruction_sst = (sst_anom * area_precomputed * slope_sst_sig).sum(('lat', 'lon'))
     reconstruction_rh = (rh_anom_expanded * slope_rh_sig).mean(('lat', 'lon'))
     reconstruction_total = reconstruction_sst + reconstruction_rh
     
@@ -550,7 +549,7 @@ def process_pair(p_name, p_da, sst_name, sst_da, rh_da):
     # ========================================================================
     del p_detrended, sst_detrended, rh_detrended
     del slope_sst, slope_se_sst, pval_sst, slope_rh, slope_se_rh, pval_rh
-    del area, area_precomputed, slope_sst_area, slope_sst_se_area
+    del area, area_precomputed
     del fdr_mask_sst, fdr_mask_rh, rh_anom_expanded
     gc.collect()
     
@@ -683,6 +682,15 @@ def main():
         'correlation_total': result['correlation_total'],
     })
     
+    # Same convention as script 11 -- Figure 2 takes the ratio of the two files'
+    # SST sensitivities, so both must be raw for the ratio to be an attenuation.
+    for _v in ('marginal_sensitivity_sst', 'marginal_sensitivity_sst_se'):
+        if _v in result_ds:
+            result_ds[_v].attrs.update({
+                'units': 'mm month-1 K-1',
+                'note': 'FDR-masked OLS slope, NOT area-weighted.',
+            })
+
     # Add metadata as attributes
     result_ds.attrs.update({
         'model_id': result['model_id'],

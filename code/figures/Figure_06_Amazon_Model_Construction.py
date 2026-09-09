@@ -11,9 +11,17 @@ Description
 for the Amazon basin:
   Panel A: Ensemble mean SST sensitivity (dP/dSST)
   Panel B: January 2016 SST anomaly
-  Panel C: Convolved SST × sensitivity for January 2016
+  Panel C: SST-forced contribution for January 2016,
+           area × sensitivity × SST anomaly
   Panel D: Full reconstruction time series (ensemble mean ± SE) vs
            observed precipitation (ensemble mean ± SD)
+
+Weighting convention
+--------------------
+This figure is the pipeline in miniature, and the panels run in the order the
+weighting does: panel A is the raw sensitivity (mm month-1 K-1), panel C applies
+the grid-cell area to turn it into a contribution, and panel D sums that over the
+ocean. Only panel A changed when the area factor moved downstream.
 
 Required data files (in data/)
 -------------------------------
@@ -44,7 +52,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # project root
 from paths import CMIG_DATA, DATA_DIR, PAPER_FIGURE_DIR, bootstrap_file
-from plotting_functions import drop_extra_coords
+from plotting_functions import drop_extra_coords, grid_area
 
 warnings.filterwarnings("ignore")
 
@@ -243,8 +251,23 @@ sst_mean = sst_ensemble.mean("ensemble")
 date = '2016-01-01'
 selected_sst = sst_mean.sel(time=date)
 
-# Convolved result
-convolved_result = selected_sst * marginal_sens_mean
+# Convolved result -- the SST-forced contribution for this month.
+# `marginal_sens_mean` is the raw sensitivity (mm month-1 K-1), which is what the
+# left panel shows. Turning it into a contribution is a spatial integral, so the
+# cell area enters here; summing this map over lat/lon reproduces the value the
+# reconstruction time series carries in the bottom panel.
+area = grid_area(marginal_sens_mean)
+convolved_result = selected_sst * area * marginal_sens_mean
+
+# The sensitivity panel's vmax is hardcoded below and its right value moved by
+# ~3 orders of magnitude when the area factor left the sensitivity. Print what it
+# should be set from, so a stale limit shows up in the log rather than as
+# saturated colour.
+_sens_vals = np.abs(marginal_sens_mean.values[np.isfinite(marginal_sens_mean.values)])
+if _sens_vals.size:
+    print(f"Amazon sensitivity |x|: p95={np.percentile(_sens_vals, 95):.3g}  "
+          f"p98={np.percentile(_sens_vals, 98):.3g}  max={_sens_vals.max():.3g} "
+          f"mm month-1 K-1")
 
 # --- Setup figure ---
 plt.rcParams.update({'font.size': 7})
@@ -270,7 +293,11 @@ basin_geom = gpd.GeoDataFrame(
 # =====================
 # SST SENSITIVITY MAP (Top Left)
 # =====================
-vmax = .04
+# The sensitivity panel, mm month-1 K-1. Limits changed when the cell-area factor
+# moved out of the saved sensitivity: on the 2 degree grid a cell subtends
+# ~1.2e-3 * cos(lat) sr, so the raw slope is ~800/cos(lat) times the old
+# area-weighted field. Matches Figures 8 and 11 so the three are comparable.
+vmax = 30
 vmin = -vmax
 num_levels = 20
 cmap = plt.get_cmap("RdBu", num_levels)
@@ -306,17 +333,11 @@ cbar = fig.colorbar(
     ax=ax_map_sensitivity,
     orientation="horizontal",
     ticks=cbar_ticks,
-    extend="neither",
+    extend="both",
     shrink=0.8,
     pad=0.03
 )
-cbar.formatter.set_powerlimits((-2, 2))
 cbar.ax.minorticks_off()
-
-# Move the scientific notation (×10ⁿ) closer to the axis
-offset_text = cbar.ax.xaxis.get_offset_text()
-offset_text.set_x(1.2)  # center horizontally
-
 cbar.set_label(r'mm month$^{-1}$ K$^{-1}$', labelpad=2)
 ax_map_sensitivity.set_title(f"Amazon SST Sensitivity")
 
@@ -359,6 +380,8 @@ ax_map_sst_2016.set_title("Jan 2016 SST Anomaly")
 # =====================
 # CONVOLVED SST × SENSITIVITY MAP (Top Right)
 # =====================
+# The contribution panel is numerically unchanged -- area is re-applied above --
+# so these limits stay as they were.
 vmax_conv = .04
 vmin_conv = -vmax_conv
 cmap_conv = plt.get_cmap("RdBu", num_levels)

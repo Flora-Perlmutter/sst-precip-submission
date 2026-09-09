@@ -171,15 +171,15 @@ def run_single_bootstrap(seed, n_time, sst_detrended, p_detrended, sst_anom,
         output_dtypes=[np.float32, np.float32, np.float32]
     )
 
-    # Apply area weighting (precomputed)
-    slope_area_boot = area_precomputed * slope_boot
-
-    # FDR correction
+    # FDR correction on the RAW slope. Area weighting is deliberately not applied
+    # here: slope_sig_boot is what the saved sensitivity SE is accumulated from, and
+    # the sensitivity is reported per unit SST, not per grid cell. The cell area
+    # belongs to the spatial integral on the next line and nowhere else.
     fdr_mask_boot = fdr_correction(pval_boot, alpha_FDR=alpha)
-    slope_sig_boot = slope_area_boot.where(fdr_mask_boot, 0.0)
+    slope_sig_boot = slope_boot.where(fdr_mask_boot, 0.0)
 
-    # Reconstruction
-    reconstruction_boot = (sst_anom * slope_sig_boot).sum(('lat', 'lon'))
+    # Reconstruction -- the one place area weighting enters.
+    reconstruction_boot = (sst_anom * area_precomputed * slope_sig_boot).sum(('lat', 'lon'))
 
     # Derived quantities are computed here because this is the only place a
     # replicate exists — the caller keeps Welford summaries, not the samples.
@@ -235,7 +235,8 @@ def bootstrap_se_incremental(sst_detrended, p_detrended, sst_anom, area_precompu
     reconstruction_se : xr.DataArray
         Bootstrap SE for reconstruction (time, basin)
     marginal_sensitivity_se : xr.DataArray
-        Bootstrap SE for marginal sensitivity (lat, lon, basin)
+        Bootstrap SE for the marginal sensitivity (lat, lon, basin), in the same
+        raw mm month-1 K-1 units as the sensitivity itself -- not area-weighted.
     """
     np.random.seed(random_seed)
     
@@ -401,20 +402,25 @@ def process_pair(p_name, p_anom, sst_name, sst_anom):
     # ========================================================================
     # FDR correction on original
     # ========================================================================
+    # The mask is applied to the RAW slope, so `slope_sig` -- the field saved as
+    # `marginal_sensitivity` -- is a sensitivity in mm month-1 K-1. Multiplying the
+    # cell area in here instead would make the saved field an area-weighted
+    # quantity that no colorbar can honestly label, and would leave the figures to
+    # divide it back out. Area belongs to the spatial integral, below.
     print("Applying FDR correction...")
-    slope_area = area_precomputed * slope
-    
     fdr_mask = fdr_correction(pval, alpha_FDR=ALPHA)
     n_sig_total = int(fdr_mask.sum().values)
     print(f"  Significant cells: {n_sig_total}")
     
-    slope_sig = slope_area.where(fdr_mask)
+    slope_sig = slope.where(fdr_mask)
     
     # ========================================================================
     # Original reconstruction
     # ========================================================================
+    # Area weighting enters here, and only here: the reconstruction is the integral
+    # of beta * SST over the ocean, so each cell carries its own solid angle.
     print("Computing original reconstruction...")
-    reconstruction = (sst_anom * slope_sig).sum(('lat', 'lon'))
+    reconstruction = (sst_anom * area_precomputed * slope_sig).sum(('lat', 'lon'))
     
     print_memory_status("After original reconstruction")
     
@@ -458,7 +464,7 @@ def process_pair(p_name, p_anom, sst_name, sst_anom):
     # Clean up before returning
     # ========================================================================
     del p_detrended, sst_detrended, sst_anom, slope, slope_se, pval
-    del area, area_precomputed, slope_area, fdr_mask
+    del area, area_precomputed, fdr_mask
     gc.collect()
     
     print_memory_status("Before return")
@@ -552,6 +558,22 @@ def main():
         'marginal_sensitivity': result['marginal_sensitivity'],
         'reconstruction_trend': result['reconstruction_trend'],
         'trend_boot': result['trend_boot'],
+    })
+
+    # The saved sensitivity is the raw FDR-masked slope. Recording that on the file
+    # is what stops a reader -- or a figure script -- from having to infer the
+    # convention from the magnitudes.
+    for _v in ('marginal_sensitivity', 'marginal_sensitivity_se'):
+        result_ds[_v].attrs.update({
+            'units': 'mm month-1 K-1',
+            'note': ('FDR-masked OLS slope, NOT area-weighted. Grid-cell area is '
+                     'applied where the reconstruction is formed, so multiply by '
+                     'regression_functions.grid_area() before summing over lat/lon.'),
+        })
+
+    result_ds['reconstruction'].attrs.update({
+        'units': 'mm month-1',
+        'note': 'sum over ocean cells of area * beta * SST anomaly',
     })
 
     result_ds['trend_boot'].attrs.update({

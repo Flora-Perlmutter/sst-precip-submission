@@ -141,10 +141,11 @@ corr_mean = ensemble_obs['correlation_sst'].reindex(basin=basin_ids)
 # spread across members, since mean(r^2) = mean(r)^2 + var(r).
 r2_mean = ensemble_obs['correlation_sst_r2'].reindex(basin=basin_ids)
 
-# Process MS data (for top panels)
-ms_sq = ensemble_obs['marginal_sensitivity_sst'].reindex(basin=basin_ids) ** 2
-ms_sq_basinmean = ms_sq.mean(dim='basin', skipna=True)
-ms_norm = ms_sq_basinmean / ms_sq_basinmean.max()
+# Sensitivity field, kept only for its lat/lon coordinates below. Nothing here
+# plots it, so the area-weighting convention does not reach this figure: the
+# panels are r^2 and std-ratio built from reconstructions, and `important_mask`
+# tests only whether a cell is significant.
+ms = ensemble_obs['marginal_sensitivity_sst'].reindex(basin=basin_ids)
 
 # Process importance data (for bottom panels)
 important_mask = xr.where(ensemble_obs['marginal_sensitivity_sst'].reindex(basin=basin_ids).notnull(), 1, np.nan)
@@ -183,8 +184,8 @@ except (ValueError, TypeError):
 gdf_corr = grdc_basins.merge(metrics_df, left_on="MRBID", right_index=True, how="left")
 gdf_frac = grdc_basins.merge(fraction_df, left_on="MRBID", right_index=True, how="left")
 
-lats = ms_sq.lat.values
-lons = ms_sq.lon.values
+lats = ms.lat.values
+lons = ms.lon.values
 
 # ---------------------------------------
 # Compute std ratio metric from xarrays

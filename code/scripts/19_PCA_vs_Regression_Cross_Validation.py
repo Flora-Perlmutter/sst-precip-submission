@@ -399,6 +399,10 @@ def regression_predict_fold(
     slope = slope.assign_coords(coords)
     pval  = pval.assign_coords(coords)
     
+    # Area weighting stays here: this function returns a reconstruction, which is
+    # the spatial integral the area factor belongs to, and no sensitivity leaves
+    # this script. Scripts 11/12/16 keep the saved sensitivity raw instead, so
+    # `slope_sig` below is area-weighted where theirs is not.
     if "basin" in p_train.dims:
         slope_area = (area * slope).transpose("lat", "lon", "basin")
         pval       = pval.transpose("lat", "lon", "basin")

@@ -7,13 +7,24 @@ Author: Flora Perlmutter
 
 Description
 -----------
-3-panel global map figure showing where ocean SST matters for precipitation:
-  Panel A: Min-max normalized total sensitivity
-                     (|MS| × SST variability), basin-averaged then normalized
+3-panel global map figure showing where ocean SST matters for precipitation.
+Panel order below follows the axes as drawn, which the previous docstring had
+reversed:
+  Panel A: Number of GRDC basins for which each ocean grid cell
+                     has a significant SST sensitivity
   Panel B: Min-max normalized SST sensitivity magnitude
                      (|MS|), basin-averaged then normalized
-  Panel C: Number of GRDC basins for which each ocean grid cell
-                     has a significant SST sensitivity
+  Panel C: Min-max normalized SST-forced contribution
+                     (area × |MS| × SST variability), basin-averaged
+
+Weighting convention
+--------------------
+Panel B is a sensitivity and carries no cell-area factor; panel C is a
+contribution and does. Both are min-max normalised to [0, 1], so the colour
+limits are unaffected -- but normalisation only rescales, it does not undo the
+cos(lat) tilt, so panel B's pattern carries more high-latitude weight than it did
+when the area factor was baked into the saved sensitivity. Panel A tests only
+whether a cell is significant, which the area factor cannot change.
 
 Required data files
 -------------------------------
@@ -41,7 +52,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))  # project root
 from paths import DATA_DIR, PAPER_FIGURE_DIR, bootstrap_file
-from plotting_functions import compute_ensemble_means, compute_ensemble_mean_sst
+from plotting_functions import compute_ensemble_means, compute_ensemble_mean_sst, grid_area
 
 warnings.filterwarnings("ignore")
 
@@ -139,10 +150,16 @@ sst_variability = sst_ensemble.std('time')
 basin_ids = grdc_basins['MRBID'].values
 
 # --- SST sensitivity ---
+# Raw slope, mm month-1 K-1 -- panel b presents a sensitivity, so no area factor.
 ms = ensemble_obs['marginal_sensitivity_sst'].reindex(basin=basin_ids)
 
-# --- Convolved quantity |MS| * SST variability ---
-convolved = abs(ms) * sst_variability
+# --- SST-forced contribution: area * |MS| * SST variability ---
+# Panel c is a contribution, so the cell area enters here. Both panels are
+# min-max normalised afterwards, but normalisation does not undo a
+# latitude-dependent multiplier -- it only rescales, so which field carries the
+# area still decides the pattern.
+area = grid_area(ms.isel(basin=0))
+convolved = abs(ms) * area * sst_variability
 convolved_basin_mean = convolved.mean(dim='basin', skipna=True)
 
 # --- Min–max normalization → [0, 1] --- 

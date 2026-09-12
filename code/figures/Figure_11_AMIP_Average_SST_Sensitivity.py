@@ -435,7 +435,7 @@ cbar3 = fig.colorbar(
     ax=ax3,
     ticks=cbar_ticks_3,
     orientation='horizontal',
-    extend='max',
+    extend='neither',
     shrink=0.8,
     pad=0.05
 )

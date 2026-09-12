@@ -279,7 +279,7 @@ cbar_ticks_1 = np.round(np.linspace(ms_vmin, ms_vmax, 5), 2)
 # extend='both': the raw sensitivity carries a 1/cos(lat) tail, so values outside
 # the range are expected. 'neither' would paint them the end colour and say nothing.
 cbar1 = fig.colorbar(sm1, ax=ax1, ticks=cbar_ticks_1,
-                     orientation='horizontal', extend='both',
+                     orientation='horizontal', extend='neither',
                      shrink=0.8, pad=0.05)
 ax1.set_title("Average SST Sensitivity")
 cbar1.set_label(r'mm month$^{-1}$ K$^{-1}$', labelpad=2)
@@ -342,7 +342,7 @@ cbar3 = fig.colorbar(
     ax=ax3, 
     ticks=cbar_ticks_3, 
     orientation='horizontal', 
-    extend='max',
+    extend='neither',
     shrink=0.8,
     pad=0.05
 )

@@ -370,7 +370,7 @@ for basin_name in highlight_basins_2:
     elif canonical_name.upper() in ['AMAZON']:
         text_x = bin_center  + 0.015
         ha_text = "right"
-        text_y = 27
+        text_y = 43
         canonical_name='Amazon'
     # Special positioning (similar to first histogram)
     elif canonical_name.upper() in ['CONNECTICUT']:

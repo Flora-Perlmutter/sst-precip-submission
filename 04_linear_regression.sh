@@ -6,7 +6,7 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=16
-#SBATCH --mem=450G
+#SBATCH --mem=250G
 #SBATCH --time=18:00:00
 # Email address
 #SBATCH --mail-user=flora.l.perlmutter.gr@dartmouth.edu

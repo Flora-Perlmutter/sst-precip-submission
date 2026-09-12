@@ -256,7 +256,6 @@ ax_B.set_xlabel('Last Year of 30-Year Window')
 ax_B.set_xlim(rolling_years.min(), rolling_years.max())
 
 x_ticks = np.arange(int(rolling_years.min()), int(rolling_years.max()) + 1, step=3)
-x_ticks = np.append(x_ticks, 2025)
 ax_B.set_xticks(x_ticks)
 ax_B.tick_params(axis='x', labelsize=6)
 

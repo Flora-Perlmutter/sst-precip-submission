@@ -333,7 +333,7 @@ cbar = fig.colorbar(
     ax=ax_map_sensitivity,
     orientation="horizontal",
     ticks=cbar_ticks,
-    extend="both",
+    extend="neither",
     shrink=0.8,
     pad=0.03
 )

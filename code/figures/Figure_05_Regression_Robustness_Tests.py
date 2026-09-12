@@ -253,9 +253,19 @@ ax_B.set_ylabel('Pattern Correlation')
 ax_B.set_title('Stability of the SST Sensitivity Over Time')
 ax_B.set_xlabel('Last Year of 30-Year Window')
 #ax_B.set_ylim([0.4, 1.0])
-ax_B.set_xlim(rolling_years.min(), rolling_years.max())
 
-x_ticks = np.arange(int(rolling_years.min()), int(rolling_years.max()) + 1, step=3)
+last_year = int(rolling_years.max())
+x_ticks = np.arange(int(rolling_years.min()), last_year + 1, step=3)
+
+# Only extend to 2025 when the data actually reaches it -- otherwise the
+# tick/vmax would imply coverage the windows don't have.
+if last_year >= 2025:
+    ax_B.set_xlim(rolling_years.min(), 2025)
+    if 2025 not in x_ticks:
+        x_ticks = np.append(x_ticks, 2025)
+else:
+    ax_B.set_xlim(rolling_years.min(), last_year)
+
 ax_B.set_xticks(x_ticks)
 ax_B.tick_params(axis='x', labelsize=6)
 

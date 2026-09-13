@@ -12,6 +12,15 @@ SST-precipitation sensitivity and rolling 30-year window sensitivities,
 across all basins. Designed to assess temporal stationarity of the
 SST-precipitation relationship.
 
+Each ensemble member's full-period sensitivity is computed over its own
+record, January 1979 to that member's own last available month -- so
+members with a longer record (e.g. through December 2025) contribute more
+months to their own full-period reference than a member whose record ends
+earlier. The rolling windows used for the correlation, by contrast, are
+built from the calendar months common to EVERY selected member, so that
+every plotted window is a genuine, complete 30-year span for all of them --
+see DETERMINE TIME WINDOWS below.
+
 Both the full-period and the rolling-window sensitivities are FDR-corrected
 before they are correlated, with the same (lat, lon)-per-basin test family
 used by 11_Linear_Regression_Bootstrap_SE.py, so the correlation is between
@@ -25,6 +34,7 @@ Two time period modes are available via USE_LONGER_PERIOD:
 
 import warnings
 import sys
+from functools import reduce
 from pathlib import Path
 import os
 
@@ -54,6 +64,7 @@ OUTPUTS_DIR = DATA_DIR
 WINDOW_SIZE = 30  # years (360 months)
 WINDOW_STEP = 12  # step by 1 year (12 months) for each window
 ALPHA = 0.05
+ANALYSIS_START = "1979-01-01"  # full-period reference and rolling windows never use dates before this
 
 # Time period options
 USE_LONGER_PERIOD = True  # Set to True to use longer period with fewer datasets
@@ -61,20 +72,23 @@ USE_LONGER_PERIOD = True  # Set to True to use longer period with fewer datasets
 if USE_LONGER_PERIOD:
     PRECIP_DATASETS_TO_USE = ['GPCP', 'CRU', 'GPCC', 'CPC', 'PREC', 'TerraClimate']
     SST_DATASETS_TO_USE = ['ERSSTv6', 'COBE-SST3']
-    TIME_PERIOD = "1980-2024"
 else:
     PRECIP_DATASETS_TO_USE = ['GPCP', 'CRU', 'GPCC', 'CPC', 'UDel', 'PREC', 'TerraClimate', 'REGEN']
     SST_DATASETS_TO_USE = ['ERSSTv6', 'COBE-SST3']
-    TIME_PERIOD = "1980-2016"
+
+# TIME_PERIOD describes the rolling-window common period. It isn't known until
+# every member's record has been loaded and intersected (see DETERMINE TIME
+# WINDOWS below), so it's set there rather than hardcoded here.
+TIME_PERIOD = None
 
 print(f"\n{'='*80}")
 print(f"PATTERN CORRELATION ANALYSIS - ALL BASINS (PARALLELIZED)")
 print(f"{'='*80}")
 print(f"Window size: {WINDOW_SIZE} years ({WINDOW_SIZE * 12} months)")
 print(f"Window step: {WINDOW_STEP} months")
-print(f"Time period: {TIME_PERIOD}")
 print(f"Precip datasets: {PRECIP_DATASETS_TO_USE}")
 print(f"SST datasets: {SST_DATASETS_TO_USE}")
+print(f"Number of ensemble members: {len(PRECIP_DATASETS_TO_USE) * len(SST_DATASETS_TO_USE)}")
 
 print(f"FDR alpha: {ALPHA}")
 
@@ -132,10 +146,14 @@ all_full_period_sensitivities = []
 for sst_name, sst_anom in sst_dict.items():
     for p_name, p_anom in precip_dict.items():
         print(f"  Processing: {p_name} vs {sst_name}")
-        
-        # Find common time across basin dimension
+
+        # Full record for this member alone: January 1979 to its own last
+        # available month, independent of what any other member covers.
         common_time = np.intersect1d(p_anom['time'].values, sst_anom['time'].values)
-        
+        common_time = common_time[common_time >= np.datetime64(ANALYSIS_START)]
+        print(f"    Full-period record: {str(common_time[0])[:7]} to {str(common_time[-1])[:7]}"
+              f" ({len(common_time)} months)")
+
         p_common = p_anom.sel(time=common_time)
         sst_common = sst_anom.sel(time=common_time)
         
@@ -166,20 +184,35 @@ print(f"Full-period ensemble mean computed from {len(all_full_period_sensitiviti
 # ============================================================================
 # DETERMINE TIME WINDOWS (ONCE, BEFORE PARALLELIZATION)
 # ============================================================================
+#
+# The windows must be built from the calendar months common to EVERY selected
+# ensemble member, not just one arbitrary pair. Each member's own record can
+# end at a different date (e.g. GPCP through Dec 2025, CRU only through Dec
+# 2024) -- using one pair's time index positions to slice into a shorter
+# member's array (as this used to do) silently truncates/misaligns that
+# member's later windows instead of raising an error. Every date in
+# `common_time` below is guaranteed present in every member's own time index,
+# so downstream `.sel(time=...)` by date label is always exact.
 
-p_test = list(precip_dict.values())[0]
-sst_test = list(sst_dict.values())[0]
-common_time = np.intersect1d(p_test['time'].values, sst_test['time'].values)
+common_time = reduce(
+    np.intersect1d,
+    [p.time.values for p in precip_dict.values()] + [s.time.values for s in sst_dict.values()],
+)
+common_time = common_time[common_time >= np.datetime64(ANALYSIS_START)]
 
 n_times = len(common_time)
 window_months = WINDOW_SIZE * 12
 
 # Calculate number of windows
 n_windows = (n_times - window_months) // WINDOW_STEP + 1
-print(f"\nTotal time points: {n_times}")
+print(f"\nCommon period across all {len(precip_dict) * len(sst_dict)} ensemble members: "
+      f"{str(common_time[0])[:7]} to {str(common_time[-1])[:7]}")
+print(f"Total time points: {n_times}")
 print(f"Window size: {window_months} months")
 print(f"Window step: {WINDOW_STEP} months")
 print(f"Number of 30-year windows: {n_windows}")
+
+TIME_PERIOD = f"{str(common_time[0])[:7]} to {str(common_time[-1])[:7]}"
 
 # Pre-compute rolling windows indices to avoid repeated indexing
 window_indices = []
@@ -195,21 +228,28 @@ for window_idx in range(n_windows):
 # DEFINE FUNCTION TO PROCESS SINGLE DATASET PAIR (FOR PARALLELIZATION)
 # ============================================================================
 
-def process_dataset_pair(sst_name, sst_anom, p_name, p_anom, 
-                        common_time_full, window_indices, rolling_years):
+def process_dataset_pair(sst_name, sst_anom, p_name, p_anom,
+                        common_time_all, window_indices, rolling_years):
     """
     Process all windows for one SST-Precip pair.
-    
+
+    `common_time_all` is the calendar-month grid common to every selected
+    SST-precip pair (computed once in DETERMINE TIME WINDOWS above), so each
+    window below is selected by actual date labels rather than by index
+    position into this pair's own time array. That guarantees every window
+    is a complete WINDOW_SIZE-year span for this member -- a member with a
+    shorter or differently-aligned record than another can never end up with
+    a truncated or shifted window.
+
     Returns:
         windows_stacked: xarray.DataArray with dims (window, spatial_dims...)
     """
-    
-    common_time_pair = np.intersect1d(p_anom['time'].values, sst_anom['time'].values)
+
     window_sensitivities_all = []
-    
+
     for window_idx, (window_start, window_end) in enumerate(window_indices):
-        window_time = common_time_pair[window_start:window_end]
-        
+        window_time = common_time_all[window_start:window_end]
+
         # Select window
         p_window = p_anom.sel(time=window_time)
         sst_window = sst_anom.sel(time=window_time)

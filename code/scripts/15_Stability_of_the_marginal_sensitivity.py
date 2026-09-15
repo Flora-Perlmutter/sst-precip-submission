@@ -12,14 +12,13 @@ SST-precipitation sensitivity and rolling 30-year window sensitivities,
 across all basins. Designed to assess temporal stationarity of the
 SST-precipitation relationship.
 
-Each ensemble member's full-period sensitivity is computed over its own
-record, January 1979 to that member's own last available month -- so
-members with a longer record (e.g. through December 2025) contribute more
-months to their own full-period reference than a member whose record ends
-earlier. The rolling windows used for the correlation, by contrast, are
-built from the calendar months common to EVERY selected member, so that
-every plotted window is a genuine, complete 30-year span for all of them --
-see DETERMINE TIME WINDOWS below.
+Every dataset is truncated to ANALYSIS_START-ANALYSIS_END (January 1979 to
+December 2024). Each ensemble member's full-period sensitivity is computed
+over that same period, and the rolling windows are built from the calendar
+months within it that are common to EVERY selected member, so the reference
+and the windows cover the same record for all members -- see DETERMINE TIME
+WINDOWS below. The number of windows follows from the length of that period
+(1979-2024 gives seventeen).
 
 Both the full-period and the rolling-window sensitivities are FDR-corrected
 before they are correlated, with the same (lat, lon)-per-basin test family
@@ -65,6 +64,7 @@ WINDOW_SIZE = 30  # years (360 months)
 WINDOW_STEP = 12  # step by 1 year (12 months) for each window
 ALPHA = 0.05
 ANALYSIS_START = "1979-01-01"  # full-period reference and rolling windows never use dates before this
+ANALYSIS_END = "2024-12-31"    # ...or after this; every dataset is truncated here
 
 # Time period options
 USE_LONGER_PERIOD = True  # Set to True to use longer period with fewer datasets
@@ -147,10 +147,18 @@ for sst_name, sst_anom in sst_dict.items():
     for p_name, p_anom in precip_dict.items():
         print(f"  Processing: {p_name} vs {sst_name}")
 
-        # Full record for this member alone: January 1979 to its own last
-        # available month, independent of what any other member covers.
+        # Full period for this member: ANALYSIS_START to ANALYSIS_END, the same
+        # for every member. Fail loudly if a member doesn't cover all of it.
         common_time = np.intersect1d(p_anom['time'].values, sst_anom['time'].values)
-        common_time = common_time[common_time >= np.datetime64(ANALYSIS_START)]
+        common_time = common_time[(common_time >= np.datetime64(ANALYSIS_START))
+                                  & (common_time <= np.datetime64(ANALYSIS_END))]
+        if (str(common_time[0])[:7] != ANALYSIS_START[:7]
+                or str(common_time[-1])[:7] != ANALYSIS_END[:7]):
+            raise ValueError(
+                f"{p_name} x {sst_name} covers {str(common_time[0])[:7]} to "
+                f"{str(common_time[-1])[:7]}, not the full {ANALYSIS_START[:7]} to "
+                f"{ANALYSIS_END[:7]} analysis period"
+            )
         print(f"    Full-period record: {str(common_time[0])[:7]} to {str(common_time[-1])[:7]}"
               f" ({len(common_time)} months)")
 
@@ -198,7 +206,8 @@ common_time = reduce(
     np.intersect1d,
     [p.time.values for p in precip_dict.values()] + [s.time.values for s in sst_dict.values()],
 )
-common_time = common_time[common_time >= np.datetime64(ANALYSIS_START)]
+common_time = common_time[(common_time >= np.datetime64(ANALYSIS_START))
+                          & (common_time <= np.datetime64(ANALYSIS_END))]
 
 n_times = len(common_time)
 window_months = WINDOW_SIZE * 12

@@ -21,7 +21,8 @@ For the twelve (precip, SST) pairs used by
 
 Run this on Discovery before regenerating Figure 5 to confirm the ensemble
 matches its manuscript description ("twelve ensemble members with data from
-at least 1980-2024, eighteen 30-year rolling windows").
+at least 1980-2024"), and to see how many 30-year rolling windows the
+common period supports -- the window count is derived from the data, not fixed).
 
 Usage
 -----

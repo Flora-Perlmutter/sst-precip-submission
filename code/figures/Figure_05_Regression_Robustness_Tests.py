@@ -267,7 +267,6 @@ else:
     ax_B.set_xlim(rolling_years.min(), last_year)
 
 ax_B.set_xticks(x_ticks)
-ax_B.set_xlim(2025)
 ax_B.tick_params(axis='x', labelsize=6)
 
 ax_B.legend(loc='best', fontsize=5)

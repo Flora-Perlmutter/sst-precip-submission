@@ -44,18 +44,7 @@ echo "Python: $PYTHON"
 "$PYTHON" -c "import xarray, netCDF4" || { echo "FATAL: fp1225 interpreter unusable"; exit 1; }
 
 for script in \
-     'Figure_01_Regression_Cross_Validation' \
-     'Figure_02_Bad_Control' \
-     'Figure_03_Regression_vs_PCA_SST_Sensitivity' \
-     'Figure_04_PCA_Regression_CV_hexabin' \
-     'Figure_05_Regression_Robustness_Tests' \
-     'Figure_06_Amazon_Model_Construction' \
-     'Figure_07_SST_Importance_by_Basin' \
-     'Figure_08_Average_SST_Sensitivity' \
-     'Figure_09_Ocean_Region_Importance' \
-     'Figure_10_SST_Forced_Trends' \
-     'Figure_11_AMIP_Average_SST_Sensitivity' \
-     'Figure_12_AMIP_vs_Obs_SST_Sensitivity'; do
+     'Figure_05_Regression_Robustness_Tests'; do
     echo "----------------------------------------"
     echo "$(date '+%H:%M:%S')  $script"
     "$PYTHON" -u "$SCRIPT_DIR/${script}.py"
